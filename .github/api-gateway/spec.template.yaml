@@ -1,0 +1,132 @@
+# .github/api-gateway/spec.template.yaml
+openapi: 3.0.0
+info:
+  title: Hybrid API Gateway
+  version: 1.0.0
+
+# IMPORTANT: Order matters! More specific paths should come before less specific ones.
+paths:
+  # 1. Frontend Static Assets (_next/static)
+  /_next/static/{proxy+}:
+    get:
+      parameters:
+        - name: proxy
+          in: path
+          required: true
+          schema:
+            type: string
+      x-yc-apigateway-integration:
+        type: object_storage
+        bucket: "${YC_FRONTEND_STATIC_BUCKET_NAME}" # From secrets.YC_BUCKET_NAME in frontend workflow
+        object: "_next/static/{proxy}"         # Path within the bucket matches frontend workflow upload
+        presigned_redirect: false
+        # service_account_id: "${YC_SERVICE_ACCOUNT_ID}" # Uncomment if needed for bucket access
+
+  # 2. Frontend Public Assets (e.g., /static/favicon.ico)
+  /static/{proxy+}:
+    get:
+      parameters:
+        - name: proxy
+          in: path
+          required: true
+          schema:
+            type: string
+      x-yc-apigateway-integration:
+        type: object_storage
+        bucket: "${YC_FRONTEND_STATIC_BUCKET_NAME}" # From secrets.YC_BUCKET_NAME in frontend workflow
+        object: "static/{proxy}"                # Path within the bucket matches frontend workflow upload
+        presigned_redirect: false
+        # service_account_id: "${YC_SERVICE_ACCOUNT_ID}" # Uncomment if needed
+
+  # 3. Backend Static Assets (served under /api/static/)
+  # IMPORTANT: Ensure Django's STATIC_URL is set to '/api/static/' in production settings
+  # This path is chosen to avoid conflict with frontend's /static/ path.
+  /api/static/{proxy+}:
+    get:
+      parameters:
+        - name: proxy
+          in: path
+          required: true
+          schema:
+            type: string
+      x-yc-apigateway-integration:
+        type: object_storage
+        bucket: "${YC_BACKEND_STATIC_BUCKET_NAME}" # From secrets.YC_STATIC_BUCKET_NAME in backend workflow
+        object: "static/{proxy}"               # Path within the backend static bucket (matches backend workflow upload)
+        presigned_redirect: false
+        # service_account_id: "${YC_SERVICE_ACCOUNT_ID}" # Uncomment if needed
+
+  # 4. Правило для Админки (/admin/)
+  /admin/{proxy+}: # Обрабатывает /admin/login/, /admin/app/model/ и т.д.
+    x-yc-apigateway-any-method:
+      parameters:
+        - name: proxy
+          in: path
+          required: true
+          schema:
+            type: string
+      x-yc-apigateway-integration:
+        type: serverless_containers
+        container_id: "${YC_BACKEND_CONTAINER_ID}"
+        # Передаем /admin/{proxy} на бэкенд
+        path: "/admin/{proxy}"
+        service_account_id: "${YC_SERVICE_ACCOUNT_ID}"
+
+  # 4.1 Правило для корня Админки (/admin) - возможно, для редиректа на /admin/
+  /admin:
+     x-yc-apigateway-any-method:
+       x-yc-apigateway-integration:
+         type: serverless_containers
+         container_id: "${YC_BACKEND_CONTAINER_ID}"
+         # Передаем /admin/ на бэкенд (с завершающим слешем)
+         path: "/admin/"
+         service_account_id: "${YC_SERVICE_ACCOUNT_ID}"
+
+  # 4.2 Правило для Health Check бэкенда
+  /api/v1/health/: # Оставляем этот внешний URL для Health Check
+    x-yc-apigateway-any-method:
+      x-yc-apigateway-integration:
+        type: serverless_containers
+        container_id: "${YC_BACKEND_CONTAINER_ID}"
+        # Передаем /health/ на бэкенд
+        path: "/health/"
+        service_account_id: "${YC_SERVICE_ACCOUNT_ID}"
+
+  # 4.3 Правило для остальных API бэкенда (/api/v1/*)
+  /api/v1/{proxy+}: # Оставляем для работающих API
+    x-yc-apigateway-any-method:
+      parameters:
+        - name: proxy
+          in: path
+          required: true
+          schema:
+            type: string
+      x-yc-apigateway-integration:
+        type: serverless_containers
+        container_id: "${YC_BACKEND_CONTAINER_ID}"
+        # Убираем явный path, возвращаясь к поведению по умолчанию для этого правила
+        # path: "/api/v1/{proxy+}"
+        service_account_id: "${YC_SERVICE_ACCOUNT_ID}"
+
+  # # 5. Корень сайта (/) -> Фронтенд
+  # /: # Должен быть ниже специфичных правил для /admin
+  #   x-yc-apigateway-any-method:
+  #     x-yc-apigateway-integration:
+  #       type: serverless_containers
+  #       container_id: "${YC_FRONTEND_CONTAINER_ID}" # Frontend Container ID (from secret)
+  #       service_account_id: "${YC_SERVICE_ACCOUNT_ID}" # Common Service Account ID
+
+  # # 6. Frontend Routes Catch-All (Handles Next.js pages, /api/auth/* etc.)
+  # # Must be last or after more specific routes like /, /api/v1, /static etc.
+  # /{proxy+}:
+  #   x-yc-apigateway-any-method:
+  #     parameters:
+  #       - name: proxy
+  #         in: path
+  #         required: true
+  #         schema:
+  #           type: string
+  #     x-yc-apigateway-integration:
+  #       type: serverless_containers
+  #       container_id: "${YC_FRONTEND_CONTAINER_ID}" # Frontend Container ID (from secret)
+  #       service_account_id: "${YC_SERVICE_ACCOUNT_ID}" # Common Service Account ID

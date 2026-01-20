@@ -1,0 +1,4 @@
+lib
+.pytest_cache
+.venv
+.git

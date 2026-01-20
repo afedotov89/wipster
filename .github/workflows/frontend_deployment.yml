@@ -1,0 +1,397 @@
+name: Deploy Frontend to Yandex Cloud Storage
+
+on:
+  # # Запуск после успешного деплоя бэкенда
+  # workflow_run:
+  #   workflows: ["Deploy Backend to Yandex Serverless Containers"]
+  #   types:
+  #     - completed
+  #   branches:
+  #     - main
+  # Запуск при изменениях фронтенд-файлов
+  push:
+    branches:
+      - main
+    paths:
+      - 'frontend/**'
+      - '.github/workflows/frontend_deployment.yml'
+  # Возможность ручного запуска
+  workflow_dispatch:
+    inputs:
+      reason:
+        description: 'Причина ручного запуска деплоя'
+        required: false
+        default: 'Ручной деплой фронтенда'
+
+jobs:
+  check_frontend_changes:
+    runs-on: ubuntu-22.04
+    outputs:
+      frontend_changed: ${{ steps.check_changes.outputs.frontend_changed }}
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Check for frontend changes
+        id: check_changes
+        run: |
+          if [ "${{ github.event_name }}" = "workflow_dispatch" ]; then
+            # Ручной запуск всегда запускает деплой
+            echo "frontend_changed=true" >> $GITHUB_OUTPUT
+            echo "Ручной запуск - всегда деплоим фронтенд"
+          elif [ "${{ github.event_name }}" = "push" ]; then
+            # Для push событий - уже фильтруем по paths, значит фронтенд изменился
+            echo "frontend_changed=true" >> $GITHUB_OUTPUT
+            echo "Push в frontend файлы - деплоим фронтенд"
+          elif [ "${{ github.event_name }}" = "workflow_run" ]; then
+            # Проверяем, изменились ли фронтенд файлы с последнего деплоя
+            # Находим последний успешный коммит деплоя фронтенда
+            LAST_DEPLOY=$(git log --grep="Deploy Frontend" --max-count=1 --format="%H" || echo "")
+
+            if [ -z "$LAST_DEPLOY" ]; then
+              # Если не найден последний деплой, деплоим
+              echo "frontend_changed=true" >> $GITHUB_OUTPUT
+              echo "Не найден последний деплой фронтенда, запускаем деплой"
+            else
+              # Проверяем изменения в frontend/ с момента последнего деплоя
+              CHANGES=$(git diff --name-only $LAST_DEPLOY HEAD -- frontend/ || echo "error")
+
+              if [ "$CHANGES" = "error" ] || [ ! -z "$CHANGES" ]; then
+                echo "frontend_changed=true" >> $GITHUB_OUTPUT
+                echo "Обнаружены изменения фронтенда с последнего деплоя"
+              else
+                echo "frontend_changed=false" >> $GITHUB_OUTPUT
+                echo "Фронтенд не изменился с последнего деплоя, пропускаем"
+              fi
+            fi
+          else
+            # По умолчанию деплоим
+            echo "frontend_changed=true" >> $GITHUB_OUTPUT
+            echo "Неизвестный триггер, запускаем деплой по умолчанию"
+          fi
+
+  # JOB 1: Сборка Vite проекта
+  build:
+    needs: check_frontend_changes
+    if: needs.check_frontend_changes.outputs.frontend_changed == 'true'
+    runs-on: ubuntu-22.04
+    outputs:
+      api_gw_domain: ${{ steps.setup_env.outputs.api_gw_domain }}
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 18
+          cache: 'npm'
+          cache-dependency-path: './frontend/package-lock.json'
+
+      - name: Install dependencies
+        working-directory: ./frontend
+        run: npm ci
+
+      # Проверка доступности API Gateway и настройка переменных окружения
+      - name: Setup Environment Variables
+        id: setup_env
+        run: |
+          # Настройка Yandex Cloud CLI для получения URL API Gateway
+          echo '${{ secrets.YC_SA_JSON_CREDENTIALS }}' > sa-key.json
+          curl -sSL https://storage.yandexcloud.net/yandexcloud-yc/install.sh | bash -s -- -i /tmp/yc
+          /tmp/yc/bin/yc config profile create sa-profile || echo "Profile exists"
+          /tmp/yc/bin/yc config set service-account-key sa-key.json
+          /tmp/yc/bin/yc config set folder-id ${{ secrets.YC_FOLDER_ID }}
+
+          # Получаем URL API Gateway
+          API_GW_URL=$(/tmp/yc/bin/yc serverless api-gateway get ${{ secrets.YC_API_GATEWAY_NAME }} --format json | jq -r '.domain')
+          echo "API Gateway URL: https://$API_GW_URL"
+
+          # Проверка доступности бэкенда (необязательно, только для информации)
+          HTTP_STATUS=$(curl -s -o /dev/null -w "%{http_code}" "https://$API_GW_URL/api/v1/health/")
+          if [ "$HTTP_STATUS" = "200" ]; then
+            echo "✅ API Gateway доступен и бэкенд работает (HTTP $HTTP_STATUS)"
+          else
+            echo "⚠️ API Gateway (https://$API_GW_URL/api/v1/health/) вернул код $HTTP_STATUS - возможно есть проблемы на бэкенде"
+            echo "Продолжаем сборку фронтенда"
+          fi
+
+          # Создаем .env файл для Vite сборки
+          cat > ./frontend/.env.production << EOF
+          VITE_API_BASE_URL=https://$API_GW_URL
+          VITE_GOOGLE_CLIENT_ID=${{ secrets.GOOGLE_CLIENT_ID }}
+          # Другие переменные окружения для production
+          EOF
+
+          echo "Созданы переменные окружения для сборки фронтенда"
+          echo "VITE_API_BASE_URL установлен на https://$API_GW_URL"
+
+          # Сохраняем домен для использования в последующих шагах
+          echo "api_gw_domain=$API_GW_URL" >> $GITHUB_OUTPUT
+
+      # Сборка Vite проекта
+      - name: Build Vite Project
+        working-directory: ./frontend
+        run: |
+          npm run build
+
+          # Проверяем наличие директории dist
+          if [ -d "dist" ]; then
+            echo "✅ Build completed successfully. Files in dist directory:"
+            ls -la dist
+          else
+            echo "❌ Build failed. Check logs for errors."
+            exit 1
+          fi
+
+      # Сохраняем результаты сборки как артефакт
+      - name: Upload build artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: frontend-static-build
+          path: ./frontend/dist/
+          retention-days: 1
+
+  # JOB 2: Ожидание бэкенда, если он деплоится параллельно
+  wait_for_backend:
+    needs: [check_frontend_changes, build]
+    if: needs.check_frontend_changes.outputs.frontend_changed == 'true' && github.event_name == 'push'
+    runs-on: ubuntu-22.04
+    permissions:
+      actions: read
+      contents: read
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Check if backend workflow is running
+        id: check_backend
+        uses: actions/github-script@v6
+        with:
+          script: |
+            const backendWorkflows = await github.rest.actions.listWorkflowRuns({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              workflow_id: 'backend_deployment.yml', // Имя файла workflow бэкенда
+              branch: 'main',
+              status: 'in_progress'
+            });
+
+            const runningBackend = backendWorkflows.data.total_count > 0;
+            console.log(`Backend workflows running: ${runningBackend}`);
+            return runningBackend;
+
+      - name: Wait for backend if it's running
+        if: steps.check_backend.outputs.result == 'true'
+        run: |
+          echo "Обнаружен запущенный деплой бэкенда, ожидаем его завершения..."
+          MAX_WAIT_MINUTES=10 # Максимальное время ожидания
+          CHECK_INTERVAL_SECONDS=3 # Интервал проверки (3 секунды)
+          SECONDS_WAITED=0
+          BACKEND_COMPLETED=false
+
+          while [ $SECONDS_WAITED -lt $((MAX_WAIT_MINUTES * 60)) ]; do
+            echo "Проверка статуса деплоя бэкенда..."
+            backend_status=$(gh run list --workflow=backend_deployment.yml --branch=main --limit=1 --json status --jq '.[0].status')
+
+            if [[ "$backend_status" != "in_progress" && "$backend_status" != "queued" ]]; then
+               echo "Деплой бэкенда завершен со статусом: $backend_status"
+               BACKEND_COMPLETED=true
+               break
+            fi
+
+            echo "Деплой бэкенда еще выполняется ($backend_status). Ожидаем $CHECK_INTERVAL_SECONDS секунд..."
+            sleep $CHECK_INTERVAL_SECONDS
+            SECONDS_WAITED=$((SECONDS_WAITED + CHECK_INTERVAL_SECONDS))
+          done
+
+          if [ "$BACKEND_COMPLETED" = "false" ]; then
+             echo "Превышено максимальное время ожидания (${MAX_WAIT_MINUTES} минут) деплоя бэкенда."
+             # Продолжаем, но можно раскомментировать для прерывания при таймауте
+             # exit 1
+             echo "Продолжаем деплой фронтенда, несмотря на таймаут ожидания бэкенда."
+          fi
+        env:
+           GH_TOKEN: ${{ github.token }} # Токен для использования gh cli
+
+  # JOB 3: Загрузка статических файлов в Object Storage
+  deploy:
+    needs: [check_frontend_changes, build, wait_for_backend]
+    if: |
+      needs.check_frontend_changes.outputs.frontend_changed == 'true' &&
+      (github.event_name != 'workflow_run' || github.event.workflow_run.conclusion == 'success')
+    runs-on: ubuntu-22.04
+    steps:
+      # Выводим информацию о запуске
+      - name: Get Deployment Info
+        run: |
+          if [ "${{ github.event_name }}" = "workflow_run" ]; then
+            echo "Запущен после успешного деплоя бэкенда"
+            echo "Backend Workflow Run ID: ${{ github.event.workflow_run.id }}"
+          elif [ "${{ github.event_name }}" = "workflow_dispatch" ]; then
+            echo "Ручной запуск деплоя фронтенда"
+            echo "Причина: ${{ github.event.inputs.reason }}"
+          else
+            echo "Автоматический деплой из-за изменений фронтенд-файлов"
+          fi
+          echo "API Gateway URL: https://${{ needs.build.outputs.api_gw_domain }}"
+
+      # Скачиваем артефакт со сборкой
+      - name: Download build artifact
+        uses: actions/download-artifact@v4
+        with:
+          name: frontend-static-build
+          path: ./frontend-static/ # Скачиваем в отдельную папку
+
+      # Настраиваем Yandex Cloud CLI
+      - name: Setup Yandex Cloud CLI
+        id: setup_yc
+        run: |
+          echo "Setting up Yandex Cloud CLI..."
+          # Проверяем, установлен ли CLI в /tmp/yc
+          if ! command -v /tmp/yc/bin/yc &> /dev/null; then
+            echo "YC CLI not found in /tmp/yc, installing..."
+            echo '${{ secrets.YC_SA_JSON_CREDENTIALS }}' > sa-key.json
+            curl -sSL https://storage.yandexcloud.net/yandexcloud-yc/install.sh | bash -s -- -i /tmp/yc
+          else
+            echo "YC CLI found in /tmp/yc."
+          fi
+          # Пытаемся активировать профиль. Если не получается, пытаемся создать.
+          if /tmp/yc/bin/yc config profile activate sa-profile &> /dev/null; then
+            echo "Profile 'sa-profile' already exists and activated."
+          else
+            echo "Profile 'sa-profile' not found or activation failed. Attempting to create..."
+            # Пытаемся создать профиль. Если не удается, завершаем с ошибкой.
+            if ! /tmp/yc/bin/yc config profile create sa-profile; then
+              echo "❌ Failed to create profile 'sa-profile'. Please check logs."
+              exit 1
+            fi
+            echo "Profile 'sa-profile' created successfully."
+          fi
+          # Настраиваем и активируем профиль
+          /tmp/yc/bin/yc config set service-account-key sa-key.json --profile sa-profile
+          /tmp/yc/bin/yc config set folder-id ${{ secrets.YC_FOLDER_ID }} --profile sa-profile
+          /tmp/yc/bin/yc config profile activate sa-profile
+          echo "YC CLI setup complete. Profile 'sa-profile' is configured and active."
+
+      # Загружаем статические файлы в Object Storage с повторными попытками
+      - name: Upload Static Files to Yandex Cloud Object Storage
+        timeout-minutes: 10
+        uses: yc-actions/yc-obj-storage-upload@v2
+        with:
+          yc-sa-json-credentials: ${{ secrets.YC_SA_JSON_CREDENTIALS }}
+          bucket: ${{ secrets.YC_BUCKET_NAME }}
+          root: ./frontend-static/
+          include: "**/*"
+          cache-control: |
+            *.js, *.css: public, max-age=31536000, immutable
+            *.png, *.jpg, *.jpeg, *.gif, *.svg, *.ico: public, max-age=31536000
+            *.html: public, max-age=3600
+            *: public, max-age=3600
+
+      # Комментируем код деплоя standalone контейнера
+      # Теперь можем использовать Object Storage для хостинга
+      # - name: Login to Yandex Container Registry
+      #   uses: docker/login-action@v3
+      #   with:
+      #     registry: cr.yandex/${{ secrets.YC_REGISTRY_ID }} # ID вашего Container Registry
+      #     username: json_key
+      #     password: ${{ secrets.YC_SA_JSON_CREDENTIALS }}
+
+      # - name: Build and Push Docker image
+      #   uses: docker/build-push-action@v5
+      #   with:
+      #     context: ./frontend # Путь к папке с Dockerfile
+      #     push: true
+      #     tags: cr.yandex/${{ secrets.YC_REGISTRY_ID }}/project-frontend:${{ github.sha }} # Исправлено YC_CR_ID на YC_REGISTRY_ID
+      #     # Добавляем для более детальных логов сборки (покажет использование кэша)
+      #     build-args: |
+      #       BUILDKIT_PROGRESS=plain
+
+      # - name: Extract static files from Docker image
+      #   run: |
+      #     IMAGE_NAME="cr.yandex/${{ secrets.YC_REGISTRY_ID }}/project-frontend:${{ github.sha }}"
+      #     echo "Extracting static files from ${IMAGE_NAME}..."
+      #     docker create --name temp_static_container ${IMAGE_NAME}
+      #     # Извлекаем .next/static
+      #     rm -rf ./frontend_next_static # Очищаем на всякий случай
+      #     docker cp temp_static_container:/app/.next/static ./frontend_next_static
+      #     echo ".next/static files extracted to ./frontend_next_static"
+      #     ls -R ./frontend_next_static # Опционально для дебага
+      #     # Извлекаем public
+      #     rm -rf ./frontend_public # Очищаем на всякий случай
+      #     docker cp temp_static_container:/app/public ./frontend_public
+      #     echo "public files extracted to ./frontend_public"
+      #     ls -R ./frontend_public # Опционально для дебага
+      #     # Удаляем контейнер
+      #     docker rm temp_static_container
+
+      # # ВОЗВРАЩАЕМ ШАГ ДЕПЛОЯ ФРОНТЕНД-КОНТЕЙНЕРА
+      # - name: Deploy Frontend Container using yc CLI
+      #   env:
+      #     # Имя контейнера фронтенда
+      #     YC_CONTAINER_NAME: ${{ secrets.YC_FRONTEND_CONTAINER_NAME }}
+      #     # ID Реестра
+      #     YC_REGISTRY_ID: ${{ secrets.YC_REGISTRY_ID }}
+      #     # ID Папки
+      #     YC_FOLDER_ID: ${{ secrets.YC_FOLDER_ID }}
+      #     # ID Сервисного аккаунта
+      #     YC_SERVICE_ACCOUNT_ID: ${{ secrets.YC_SERVICE_ACCOUNT_ID }}
+      #     # Переменные окружения для контейнера фронтенда
+      #     ENV_VARS: |
+      #       NODE_ENV=production
+      #       NEXTAUTH_URL=https://${{ secrets.DOMAIN_NAME }}
+      #       NEXTAUTH_SECRET=${{ secrets.NEXTAUTH_SECRET }}
+      #       NEXT_PUBLIC_API_BASE_URL=https://${{ env.API_GW_DOMAIN }}
+      #   run: |
+      #     # Устанавливаем/настраиваем yc CLI, если еще не сделано
+      #     if ! command -v yc &> /dev/null; then curl -sSL https://storage.yandexcloud.net/yandexcloud-yc/install.sh | bash; echo "$HOME/yandex-cloud/bin" >> $GITHUB_PATH; fi
+      #     if ! $HOME/yandex-cloud/bin/yc config profile get sa-profile &> /dev/null; then echo '${{ secrets.YC_SA_JSON_CREDENTIALS }}' > sa-key.json; $HOME/yandex-cloud/bin/yc config profile create sa-profile; $HOME/yandex-cloud/bin/yc config set folder-id ${{ secrets.YC_FOLDER_ID }}; fi
+
+      #     # Подготовка флагов --environment из переменной ENV_VARS
+      #     ENV_FLAGS=$(echo "${ENV_VARS}" | sed 's/^ *//;s/ *$//' | grep -v '^#' | grep -v '^$' | sed 's/^/--environment /' | tr '\n' ' ')
+      #     echo "Environment flags: ${ENV_FLAGS}"
+
+      #     # Деплоим ревизию
+      #     $HOME/yandex-cloud/bin/yc serverless container revisions deploy \
+      #       --container-name "${YC_CONTAINER_NAME}" \
+      #       --image "cr.yandex/${YC_REGISTRY_ID}/project-frontend:${{ github.sha }}" \
+      #       --folder-id "${YC_FOLDER_ID}" \
+      #       --memory 256MB \
+      #       --cores 1 \
+      #       --concurrency 4 \
+      #       --execution-timeout 60s \
+      #       --min-instances 1 \
+      #       --service-account-id "${YC_SERVICE_ACCOUNT_ID}" \
+      #       ${ENV_FLAGS}
+
+      # - name: Upload _next/static Assets to Yandex Cloud Object Storage
+      #   uses: yc-actions/yc-obj-storage-upload@v2
+      #   with:
+      #     yc-sa-json-credentials: ${{ secrets.YC_SA_JSON_CREDENTIALS }}
+      #     bucket: ${{ secrets.YC_BUCKET_NAME }} # Бакет для статики фронтенда
+      #     root: ./frontend_next_static/ # Используем извлеченную директорию
+      #     prefix: _next/static
+      #     include: "**/*"
+      #     # Возвращаем многострочный cache-control
+      #     cache-control: |
+      #       *.js: public, max-age=31536000, immutable
+      #       *.css: public, max-age=31536000, immutable
+      #       *: public, max-age=3600 # Для остальных файлов (манифесты и т.д.)
+
+      # - name: Upload public Assets to Yandex Cloud Object Storage # Шаг раскомментирован
+      #   uses: yc-actions/yc-obj-storage-upload@v2
+      #   with:
+      #     yc-sa-json-credentials: ${{ secrets.YC_SA_JSON_CREDENTIALS }}
+      #     bucket: ${{ secrets.YC_BUCKET_NAME }} # Тот же бакет
+      #     root: ./frontend_public/ # Используем извлеченную директорию
+      #     prefix: static
+      #     include: "**/*"
+      #     cache-control: |
+      #       *.js, *.css: public, max-age=31536000, immutable
+      #       *.png, *.jpg, *.jpeg, *.gif, *.svg, *.ico: public, max-age=31536000
+      #       *.html: max-age=3600
+      #       *: no-cache
+
+      # Шаг установки provisioned instances удален, используется флаг --min-instances при деплое
+

@@ -1,0 +1,3 @@
+# This file ensures the public directory is not empty.
+# It helps prevent potential issues with Docker COPY command
+# if the directory would otherwise be empty.

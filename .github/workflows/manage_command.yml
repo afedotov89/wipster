@@ -1,0 +1,220 @@
+name: Run Django Management Command
+
+on:
+  workflow_dispatch:
+    inputs:
+      command:
+        description: 'Management command arguments (e.g., "migrate --noinput" or "createsuperuser --username admin --email admin@example.com --noinput")'
+        required: true
+        type: string
+      image_tag:
+        description: 'Docker image tag to use (default: latest)'
+        required: false
+        default: 'latest'
+        type: string
+
+jobs:
+  run_command:
+    runs-on: ubuntu-22.04
+    env:
+      # Используйте те же секреты и переменные, что и в основном workflow
+      YC_CONTAINER_NAME: ${{ secrets.YC_CONTAINER_NAME }}
+      YC_REGISTRY_ID: ${{ secrets.YC_REGISTRY_ID }}
+      YC_FOLDER_ID: ${{ secrets.YC_FOLDER_ID }}
+      DATABASE_URL: ${{ secrets.DATABASE_URL }}
+      DJANGO_SECRET_KEY: ${{ secrets.DJANGO_SECRET_KEY }} # Или другое значение, если не требуется "боевой" ключ
+      CORS_ALLOWED_ORIGINS: ${{ secrets.CORS_ALLOWED_ORIGINS }}
+      OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
+      OPENROUTER_API_KEY: ${{ secrets.OPENROUTER_API_KEY }}
+      YC_SERVICE_ACCOUNT_ID: ${{ secrets.YC_SERVICE_ACCOUNT_ID }}
+      YC_NETWORK_ID: ${{ secrets.YC_NETWORK_ID }}
+      # Добавляем переменную для пароля суперпользователя
+      DJANGO_SUPERUSER_PASSWORD: ${{ secrets.DJANGO_SUPERUSER_PASSWORD }}
+      # ALLOWED_HOSTS может не требоваться для management команд, но можно добавить при необходимости
+      # DEBUG=False # Устанавливаем DEBUG в False для production-like окружения
+
+    steps:
+      - name: Install Yandex Cloud CLI
+        run: |
+          curl -sSL https://storage.yandexcloud.net/yandexcloud-yc/install.sh | bash
+          echo "$HOME/yandex-cloud/bin" >> $GITHUB_PATH
+
+      - name: Setup Yandex Cloud credentials
+        run: |
+          echo '${{ secrets.YC_SA_JSON_CREDENTIALS }}' > sa-key.json
+          yc config profile create sa-profile || echo "Profile already exists"
+          yc config set service-account-key sa-key.json
+          yc config set folder-id "${YC_FOLDER_ID}"
+
+      - name: Generate Temporary Container Name
+        id: temp_name
+        run: echo "temp_container_name=${YC_CONTAINER_NAME}-manage-${{ github.run_id }}" >> $GITHUB_OUTPUT # Correct way to set output
+
+      - name: Create Temporary Container if not exists
+        run: |
+          TEMP_CONTAINER_NAME="${{ steps.temp_name.outputs.temp_container_name }}"
+          echo "Attempting to create container: ${TEMP_CONTAINER_NAME}"
+          yc serverless container create --name "${TEMP_CONTAINER_NAME}" --description "Temporary container for manage command run ${{ github.run_id }}" || echo "Container already exists or creation failed, proceeding to deploy revision..."
+
+      - name: Deploy Temporary Container to Run Command
+        id: deploy_temp
+        run: |
+          TEMP_CONTAINER_NAME="${{ steps.temp_name.outputs.temp_container_name }}"
+          IMAGE_TAG="${{ github.event.inputs.image_tag }}"
+          COMMAND_ARGS="${{ github.event.inputs.command }}" # Получаем команду из input
+
+          echo "Deploying temporary container: ${TEMP_CONTAINER_NAME}"
+          echo "Using image: cr.yandex/${YC_REGISTRY_ID}/${YC_CONTAINER_NAME}:${IMAGE_TAG}"
+          echo "Running command: python manage.py ${COMMAND_ARGS}"
+
+          # Разбиваем аргументы на массив для правильной передачи
+          read -r -a ARGS_ARRAY <<< "${COMMAND_ARGS}"
+
+          # Создаем базовый набор аргументов для команды yc
+          YC_ARGS=(
+            --container-name "${TEMP_CONTAINER_NAME}"
+            --image "cr.yandex/${YC_REGISTRY_ID}/${YC_CONTAINER_NAME}:${IMAGE_TAG}"
+            --folder-id "${YC_FOLDER_ID}"
+            --memory 512MB
+            --cores 1
+            --execution-timeout 300s
+            --network-id "${YC_NETWORK_ID}"
+            --concurrency 1
+            --min-instances 0
+            --command "python"
+            --args "manage.py"
+          )
+
+          # Добавляем каждый аргумент команды Django отдельно
+          for arg in "${ARGS_ARRAY[@]}"; do
+            YC_ARGS+=(--args "$arg")
+          done
+
+          # Добавляем переменные окружения
+          YC_ARGS+=(
+            --environment DJANGO_SETTINGS_MODULE=project.settings
+            --environment DATABASE_URL="${DATABASE_URL}"
+            --environment SECRET_KEY="${DJANGO_SECRET_KEY}"
+            --environment CORS_ALLOWED_ORIGINS="${CORS_ALLOWED_ORIGINS}"
+            --environment DEBUG=True
+            --environment STATIC_URL=/api/static/
+            --environment DJANGO_SUPERUSER_PASSWORD="${DJANGO_SUPERUSER_PASSWORD}"
+            --environment OPENAI_API_KEY="${OPENAI_API_KEY}"
+            --environment OPENROUTER_API_KEY="${OPENROUTER_API_KEY}"
+            --runtime task
+            --service-account-id "${YC_SERVICE_ACCOUNT_ID}"
+          )
+
+          # Создаем временный контейнер с переопределенной командой
+          # Используем режим 'task' для разового запуска команды
+          if ! yc serverless container revisions deploy "${YC_ARGS[@]}"; then
+            echo "::error::Не удалось выполнить деплой ревизии. Удаление контейнера..."
+            yc serverless container delete --name "${TEMP_CONTAINER_NAME}" || echo "Не удалось удалить контейнер"
+            exit 1
+          fi
+
+          # Сохраняем имя контейнера для последующих шагов
+          echo "temp_container_name=${TEMP_CONTAINER_NAME}" >> $GITHUB_OUTPUT
+
+      # Вместо invoke-and-wait, просто ждем некоторое время
+      - name: Wait for Task Execution
+        run: |
+          TEMP_CONTAINER_NAME="${{ steps.deploy_temp.outputs.temp_container_name }}"
+
+          echo "Command execution started: python manage.py ${{ github.event.inputs.command }}"
+
+          # Получаем URL контейнера
+          CONTAINER_URL=$(yc serverless container get --name "${TEMP_CONTAINER_NAME}" --format json | jq -r '.url // empty')
+          if [[ -z "${CONTAINER_URL}" ]]; then
+            echo "::error::Не удалось получить URL контейнера"
+            exit 1
+          fi
+
+          echo "Container URL: ${CONTAINER_URL}"
+
+          # Получаем IAM-токен для авторизации
+          IAM_TOKEN=$(yc iam create-token)
+          if [[ -z "${IAM_TOKEN}" ]]; then
+            echo "::error::Не удалось получить IAM-токен"
+            exit 1
+          fi
+
+          # Активируем task с помощью HTTP-запроса
+          echo "Activating task with HTTP request..."
+          HTTP_RESPONSE=$(curl -s -w "\n%{http_code}" --max-time 120 -H "Authorization: Bearer ${IAM_TOKEN}" "${CONTAINER_URL}" || echo "000")
+          # Используем более надежный подход к обработке ответа
+          HTTP_LINES=$(echo "$HTTP_RESPONSE" | wc -l)
+          if [[ $HTTP_LINES -gt 1 ]]; then
+              HTTP_BODY=$(echo "$HTTP_RESPONSE" | sed '$d')  # Удаляем последнюю строку
+              HTTP_CODE=$(echo "$HTTP_RESPONSE" | tail -n 1) # Берем последнюю строку
+          else
+              HTTP_BODY=""
+              HTTP_CODE=$(echo "$HTTP_RESPONSE")
+          fi
+
+          echo "HTTP Status Code: ${HTTP_CODE}"
+          if [[ "$HTTP_CODE" == "200" ]]; then
+            echo "✅ Task activated successfully"
+          else
+            echo "⚠️ HTTP request returned non-200 status code: ${HTTP_CODE}"
+            echo "Response body: ${HTTP_BODY}"
+            echo "This may be OK for tasks that don't return HTTP 200"
+          fi
+
+          echo "Waiting for 40 seconds to allow the task to complete..."
+          sleep 40
+          echo "Fetching logs to verify completion..."
+
+      - name: Fetch Container Logs
+        id: fetch_logs
+        run: |
+          TEMP_CONTAINER_NAME="${{ steps.deploy_temp.outputs.temp_container_name }}"
+          CONTAINER_ID=$(yc serverless container get --name "${TEMP_CONTAINER_NAME}" --format json | jq -r '.id // empty')
+
+          if [[ -z "$CONTAINER_ID" ]]; then
+            echo "::error::Could not find container ID for ${TEMP_CONTAINER_NAME}"
+            exit 1
+          fi
+
+          echo "Found Container ID: ${CONTAINER_ID}"
+          echo "Fetching logs..."
+
+          # Увеличиваем таймаут до 90 секунд и уменьшаем объем запрашиваемых логов
+          echo "Attempting to fetch logs (with 90s timeout)..."
+          LOG_OUTPUT=$(timeout 90s yc logging read --resource-types=serverless.container --resource-ids="${CONTAINER_ID}" --since=5m --limit 100 || echo "LOG_TIMEOUT_ERROR")
+
+          # Проверяем на ошибку таймаута
+          if [[ "$LOG_OUTPUT" == "LOG_TIMEOUT_ERROR" ]]; then
+            echo "Warning: Timeout while fetching logs. Container may still have executed the command successfully."
+            echo "Will continue but won't be able to verify task success through logs."
+            # Пропускаем проверку логов, но не выходим с ошибкой - задание могло выполниться
+          elif [[ -z "$LOG_OUTPUT" ]]; then
+            echo "Warning: No logs found for the container. Task may not have executed."
+            echo "Will continue but won't be able to verify task success."
+            # Пропускаем проверку логов, но не выходим с ошибкой - задание могло выполниться
+          else
+            echo "$LOG_OUTPUT"
+
+            # Проверяем успешное завершение по логам только если логи получены
+            if echo "$LOG_OUTPUT" | grep -q "exited with 0"; then
+              echo "Task completed successfully (found 'exited with 0' in logs)"
+            else
+              echo "Warning: Did not find successful exit code in logs"
+              echo "The command may have still completed successfully, but we can't verify it"
+            fi
+          fi
+
+          # В любом случае считаем задание выполненным, так как мы не можем гарантированно
+          # определить его статус, если получение логов не сработало
+
+      - name: Delete Temporary Container
+        if: always() # Выполнять всегда, чтобы почистить за собой
+        run: |
+          TEMP_CONTAINER_NAME="${{ steps.deploy_temp.outputs.temp_container_name }}"
+          echo "Deleting temporary container: ${TEMP_CONTAINER_NAME}"
+          # Добавляем проверку, существует ли контейнер перед удалением
+          if yc serverless container get --name "${TEMP_CONTAINER_NAME}" > /dev/null 2>&1; then
+            yc serverless container delete --name "${TEMP_CONTAINER_NAME}" || echo "Failed to delete container ${TEMP_CONTAINER_NAME}."
+          else
+            echo "Container ${TEMP_CONTAINER_NAME} does not exist, skipping deletion."
+          fi

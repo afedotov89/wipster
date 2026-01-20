@@ -1,0 +1,138 @@
+name: Update API Gateway for Hybrid Deployment
+
+on:
+  # Оставляем ТОЛЬКО ручной запуск
+  workflow_dispatch:
+    inputs:
+      reason:
+        description: 'Причина ручного запуска обновления API Gateway'
+        required: false
+        default: 'Ручной запуск'
+
+jobs:
+  update-gateway:
+    # Убираем условие if, чтобы ручной запуск всегда работал
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Install Yandex Cloud CLI
+        run: |
+          curl -sSL https://storage.yandexcloud.net/yandexcloud-yc/install.sh | bash
+          echo "$HOME/yandex-cloud/bin" >> $GITHUB_PATH
+
+      - name: Setup Yandex Cloud credentials
+        run: |
+          echo '${{ secrets.YC_SA_JSON_CREDENTIALS }}' > sa-key.json
+          $HOME/yandex-cloud/bin/yc config profile create sa-profile
+          $HOME/yandex-cloud/bin/yc config set service-account-key sa-key.json
+          $HOME/yandex-cloud/bin/yc config set folder-id ${{ secrets.YC_FOLDER_ID }}
+
+      - name: Get Container IDs
+        id: get_container_ids
+        env:
+          YC_BACKEND_CONTAINER_NAME: ${{ secrets.YC_CONTAINER_NAME }}
+          # YC_FRONTEND_CONTAINER_NAME: ${{ secrets.YC_FRONTEND_CONTAINER_NAME }}
+        run: |
+          echo "Fetching container IDs..."
+          BACKEND_ID=$($HOME/yandex-cloud/bin/yc serverless container get "${YC_BACKEND_CONTAINER_NAME}" --format json | jq -r '.id')
+          # FRONTEND_ID=$($HOME/yandex-cloud/bin/yc serverless container get "${YC_FRONTEND_CONTAINER_NAME}" --format json | jq -r '.id')
+
+          if [ -z "$BACKEND_ID" ] || [ "$BACKEND_ID" == "null" ]; then
+            echo "::error::Failed to get Backend Container ID for name ${YC_BACKEND_CONTAINER_NAME}"
+            exit 1
+          fi
+          # if [ -z "$FRONTEND_ID" ] || [ "$FRONTEND_ID" == "null" ]; then
+          #   echo "::error::Failed to get Frontend Container ID for name ${YC_FRONTEND_CONTAINER_NAME}"
+          #   exit 1
+          # fi
+
+          echo "Backend Container ID: ${BACKEND_ID}"
+          # echo "Frontend Container ID: ${FRONTEND_ID}"
+          echo "::set-output name=backend_id::${BACKEND_ID}"
+          # echo "::set-output name=frontend_id::${FRONTEND_ID}"
+
+      - name: Update API Gateway from Template
+        env:
+          # --- Переменные для подстановки в spec.template.yaml ---
+          # Шлюз и папка
+          YC_API_GATEWAY_NAME: ${{ secrets.YC_API_GATEWAY_NAME }}
+          YC_FOLDER_ID: ${{ secrets.YC_FOLDER_ID }}
+          # Контейнеры (ID получаем из предыдущего шага)
+          YC_BACKEND_CONTAINER_ID: ${{ steps.get_container_ids.outputs.backend_id }}
+          # YC_FRONTEND_CONTAINER_ID: ${{ steps.get_container_ids.outputs.frontend_id }}
+          # Бакеты для статики
+          YC_BACKEND_STATIC_BUCKET_NAME: ${{ secrets.YC_STATIC_BUCKET_NAME }}
+          # YC_FRONTEND_STATIC_BUCKET_NAME: ${{ secrets.YC_BUCKET_NAME }}
+          # Сервисный аккаунт
+          YC_SERVICE_ACCOUNT_ID: ${{ secrets.YC_SERVICE_ACCOUNT_ID }}
+          # --------------------------------------------------------
+        run: |
+          TEMPLATE_FILE=".github/api-gateway/spec.template.yaml"
+          if [ ! -f "$TEMPLATE_FILE" ]; then
+            echo "::error::API Gateway template file not found at $TEMPLATE_FILE"
+            exit 1
+          fi
+
+          # Подставляем переменные окружения в шаблон
+          VARIABLES_TO_SUBSTITUTE=$(printf '\$%s ' $(env | cut -d= -f1 | grep -E '^(YC_)'))
+          echo "Substituting variables: ${VARIABLES_TO_SUBSTITUTE}"
+          envsubst "${VARIABLES_TO_SUBSTITUTE}" < "$TEMPLATE_FILE" > final-spec.yaml
+
+          echo "Generated final spec.yaml:"
+          cat final-spec.yaml
+
+          # Проверяем, существует ли API Gateway
+          API_GATEWAY_EXISTS=$($HOME/yandex-cloud/bin/yc serverless api-gateway list --format=json | jq -r --arg name "${YC_API_GATEWAY_NAME}" '.[] | select(.name==$name) | .id')
+
+          if [ -z "$API_GATEWAY_EXISTS" ]; then
+            echo "API Gateway '${YC_API_GATEWAY_NAME}' does not exist, creating..."
+            $HOME/yandex-cloud/bin/yc serverless api-gateway create \
+              --name "${YC_API_GATEWAY_NAME}" \
+              --spec final-spec.yaml \
+              --folder-id "${YC_FOLDER_ID}"
+          else
+            echo "API Gateway '${YC_API_GATEWAY_NAME}' exists, updating..."
+            $HOME/yandex-cloud/bin/yc serverless api-gateway update "${YC_API_GATEWAY_NAME}" \
+              --spec final-spec.yaml \
+              --folder-id "${YC_FOLDER_ID}"
+          fi
+
+          API_GW_URL=$($HOME/yandex-cloud/bin/yc serverless api-gateway get "${YC_API_GATEWAY_NAME}" --format json | jq -r '.domain')
+          echo "API Gateway URL: https://$API_GW_URL"
+          echo "API_GW_URL=https://$API_GW_URL" >> $GITHUB_ENV
+
+      - name: Health check (Optional)
+        run: |
+          if [ -z "${{ env.API_GW_URL }}" ]; then
+             echo "::warning::Could not get API Gateway URL. Skipping health check."
+             exit 0 # Не падаем, если URL не получили
+          fi
+
+          echo "Checking service health via API Gateway: ${{ env.API_GW_URL }}"
+          MAX_RETRIES=5 # Уменьшаем кол-во попыток для health check
+          COUNT=0
+          SUCCESS=false
+          while [ $COUNT -lt $MAX_RETRIES ]; do
+            # Проверяем эндпоинт /health/ бэкенда через префикс /api/v1/
+            HEALTH_CHECK_URL="${{ env.API_GW_URL }}/api/v1/health/"
+            echo "Checking URL (${COUNT}/${MAX_RETRIES}): ${HEALTH_CHECK_URL}"
+            HTTP_STATUS=$(curl -s -o /dev/null -w "%{http_code}" --max-time 30 "${HEALTH_CHECK_URL}")
+
+            if [ "$HTTP_STATUS" = "200" ]; then
+              echo "::notice::Service is up and running! (HTTP $HTTP_STATUS)"
+              SUCCESS=true
+              break
+            else
+              echo "::warning::Received status $HTTP_STATUS. Retrying..."
+              sleep 8
+              COUNT=$((COUNT+1))
+            fi
+          done
+
+          if [ "$SUCCESS" = false ]; then
+            echo "::error::Service did not become healthy after $MAX_RETRIES attempts."
+            # Решаем, падать или нет. Можно не падать: exit 0
+            exit 1 # Падаем, если health check не прошел
+          fi

@@ -1,0 +1,179 @@
+name: Deploy Backend to Yandex Serverless Containers
+
+on:
+  push:
+    branches:
+      - main
+    paths:
+      - 'backend/**'
+      - '.github/workflows/backend_deployment.yml'
+
+jobs:
+  deploy:
+    runs-on: ubuntu-22.04
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Login to Yandex Container Registry
+        uses: docker/login-action@v3
+        with:
+          registry: cr.yandex
+          username: json_key
+          password: ${{ secrets.YC_SA_JSON_CREDENTIALS }}
+
+      - name: Build and push Docker image
+        uses: docker/build-push-action@v5
+        with:
+          context: ./backend
+          push: true
+          tags: cr.yandex/${{ secrets.YC_REGISTRY_ID }}/${{ secrets.YC_CONTAINER_NAME }}:${{ github.sha }},cr.yandex/${{ secrets.YC_REGISTRY_ID }}/${{ secrets.YC_CONTAINER_NAME }}:latest
+          cache-from: type=registry,ref=cr.yandex/${{ secrets.YC_REGISTRY_ID }}/${{ secrets.YC_CONTAINER_NAME }}:latest
+          cache-to: type=inline
+          platforms: linux/amd64,linux/arm64
+
+      - name: Install Yandex Cloud CLI
+        run: |
+          curl -sSL https://storage.yandexcloud.net/yandexcloud-yc/install.sh | bash
+          echo "$HOME/yandex-cloud/bin" >> $GITHUB_PATH
+
+      - name: Setup Yandex Cloud credentials
+        run: |
+          echo '${{ secrets.YC_SA_JSON_CREDENTIALS }}' > sa-key.json
+          $HOME/yandex-cloud/bin/yc config profile create sa-profile
+          $HOME/yandex-cloud/bin/yc config set service-account-key sa-key.json
+          $HOME/yandex-cloud/bin/yc config set folder-id ${{ secrets.YC_FOLDER_ID }}
+
+      - name: Extract static files from Docker image
+        run: |
+          docker create --name temp_static_container cr.yandex/${{ secrets.YC_REGISTRY_ID }}/${{ secrets.YC_CONTAINER_NAME }}:${{ github.sha }}
+          docker cp temp_static_container:/app/staticfiles ./backend_static
+          docker rm temp_static_container
+          echo "Static files extracted to ./backend_static"
+          find ./backend_static -type f | wc -l
+          ls -la ./backend_static
+
+      - name: Create static bucket if not exists
+        env:
+          BUCKET_NAME: ${{ secrets.YC_STATIC_BUCKET_NAME }}
+        run: |
+          echo "Attempting to create bucket: ${BUCKET_NAME}"
+          $HOME/yandex-cloud/bin/yc storage bucket create "${BUCKET_NAME}" --default-storage-class=standard --acl=public-read || echo "Bucket already exists or failed to create (error ignored)"
+          $HOME/yandex-cloud/bin/yc storage bucket list
+
+      - name: Upload static files to Yandex Cloud Object Storage with Retry
+        timeout-minutes: 10
+        uses: yc-actions/yc-obj-storage-upload@v2
+        with:
+          yc-sa-json-credentials: ${{ secrets.YC_SA_JSON_CREDENTIALS }}
+          bucket: ${{ secrets.YC_STATIC_BUCKET_NAME }}
+          root: ./backend_static
+          include: "**/*"
+          cache-control: |
+            *: public, max-age=3600
+
+      - name: Prepare Allowed Hosts
+        id: prepare_hosts
+        env:
+          YC_API_GATEWAY_NAME: ${{ secrets.YC_API_GATEWAY_NAME }}
+          SECRET_ALLOWED_HOSTS: ${{ secrets.ALLOWED_HOSTS }}
+        run: |
+          echo "Checking for existing API Gateway: ${YC_API_GATEWAY_NAME}"
+          API_GW_URL=$($HOME/yandex-cloud/bin/yc serverless api-gateway get --name "${YC_API_GATEWAY_NAME}" --format json 2>/dev/null | jq -r '.domain // empty')
+
+          FINAL_ALLOWED_HOSTS="${SECRET_ALLOWED_HOSTS}"
+
+          if [[ -n "$API_GW_URL" ]]; then
+            echo "API Gateway found with URL: ${API_GW_URL}"
+            if [[ -n "$FINAL_ALLOWED_HOSTS" ]]; then
+              # Add gateway URL with comma if SECRET_ALLOWED_HOSTS is not empty
+              FINAL_ALLOWED_HOSTS="${API_GW_URL},${FINAL_ALLOWED_HOSTS}"
+            else
+              # Use only gateway URL if SECRET_ALLOWED_HOSTS is empty
+              FINAL_ALLOWED_HOSTS="${API_GW_URL}"
+            fi
+          else
+            echo "API Gateway not found or no domain returned. Using SECRET_ALLOWED_HOSTS."
+          fi
+
+          echo "Final ALLOWED_HOSTS for deployment: ${FINAL_ALLOWED_HOSTS}"
+          echo "::set-output name=dynamic_hosts::${FINAL_ALLOWED_HOSTS}"
+
+      # Возвращаем деплой через yc CLI из-за необходимости указания network-id
+      - name: Deploy to Yandex Serverless Containers
+        env:
+          YC_CONTAINER_NAME: ${{ secrets.YC_CONTAINER_NAME }}
+          YC_REGISTRY_ID: ${{ secrets.YC_REGISTRY_ID }}
+          YC_FOLDER_ID: ${{ secrets.YC_FOLDER_ID }}
+          DATABASE_URL: ${{ secrets.DATABASE_URL }}
+          DJANGO_SECRET_KEY: ${{ secrets.DJANGO_SECRET_KEY }}
+          CORS_ALLOWED_ORIGINS: ${{ secrets.CORS_ALLOWED_ORIGINS }}
+          YC_SERVICE_ACCOUNT_ID: ${{ secrets.YC_SERVICE_ACCOUNT_ID }}
+          YC_NETWORK_ID: ${{ secrets.YC_NETWORK_ID }} # Важный параметр для доступа к БД
+          OPENROUTER_API_KEY: ${{ secrets.OPENROUTER_API_KEY }}
+          OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
+          GOOGLE_CLIENT_ID: ${{ secrets.GOOGLE_CLIENT_ID }}
+          GOOGLE_CLIENT_SECRET: ${{ secrets.GOOGLE_CLIENT_SECRET }}
+          SITE_URL: ${{ secrets.SITE_URL }}
+        run: |
+          # Устанавливаем/настраиваем yc CLI, если еще не сделано
+          if ! command -v yc &> /dev/null; then curl -sSL https://storage.yandexcloud.net/yandexcloud-yc/install.sh | bash; echo "$HOME/yandex-cloud/bin" >> $GITHUB_PATH; fi
+          if ! $HOME/yandex-cloud/bin/yc config profile get sa-profile &> /dev/null; then echo '${{ secrets.YC_SA_JSON_CREDENTIALS }}' > sa-key.json; $HOME/yandex-cloud/bin/yc config profile create sa-profile; $HOME/yandex-cloud/bin/yc config set service-account-key sa-key.json; $HOME/yandex-cloud/bin/yc config set folder-id ${{ secrets.YC_FOLDER_ID }}; fi
+
+          # Проверяем существование контейнера и создаем его, если не существует
+          if ! $HOME/yandex-cloud/bin/yc serverless container get "${YC_CONTAINER_NAME}" &> /dev/null; then
+            echo "Container ${YC_CONTAINER_NAME} not found. Creating it..."
+            $HOME/yandex-cloud/bin/yc serverless container create \
+              --name "${YC_CONTAINER_NAME}" \
+              --folder-id "${YC_FOLDER_ID}"
+          fi
+
+          # Создаем или обновляем контейнер
+          $HOME/yandex-cloud/bin/yc serverless container revisions deploy \
+            --container-name "${YC_CONTAINER_NAME}" \
+            --image "cr.yandex/${YC_REGISTRY_ID}/${YC_CONTAINER_NAME}:${{ github.sha }}" \
+            --folder-id "${YC_FOLDER_ID}" \
+            --memory 512MB \
+            --cores 1 \
+            --concurrency 8 \
+            --execution-timeout 60s \
+            --network-id "${YC_NETWORK_ID}" \
+            --min-instances 1 \
+            --environment DJANGO_SETTINGS_MODULE=project.settings \
+            --environment DATABASE_URL="$(echo -n "${DATABASE_URL}" | sed 's/"/\\"/g')" \
+            --environment SECRET_KEY="$(echo -n "${DJANGO_SECRET_KEY}" | sed 's/"/\\"/g')" \
+            --environment ALLOWED_HOSTS="$(echo -n "${{ steps.prepare_hosts.outputs.dynamic_hosts }}" | sed 's/"/\\"/g')" \
+            --environment DEBUG=False \
+            --environment CORS_ALLOWED_ORIGINS="$(echo -n "${CORS_ALLOWED_ORIGINS}" | sed 's/"/\\"/g')" \
+            --environment STATIC_URL=/api/static/ \
+            --environment OPENROUTER_API_KEY="$(echo -n "${OPENROUTER_API_KEY}" | sed 's/"/\\"/g')" \
+            --environment OPENAI_API_KEY="$(echo -n "${OPENAI_API_KEY}" | sed 's/"/\\"/g')" \
+            --environment GOOGLE_CLIENT_ID="$(echo -n "${GOOGLE_CLIENT_ID}" | sed 's/"/\\"/g')" \
+            --environment GOOGLE_CLIENT_SECRET="$(echo -n "${GOOGLE_CLIENT_SECRET}" | sed 's/"/\\"/g')" \
+            --environment SITE_URL="$(echo -n "${SITE_URL}" | sed 's/"/\\"/g')" \
+            --service-account-id "${YC_SERVICE_ACCOUNT_ID}"
+
+      - name: Get Deployed Container URL
+        id: get_container_url
+        env:
+          YC_CONTAINER_NAME: ${{ secrets.YC_CONTAINER_NAME }}
+        run: |
+          # Убедимся, что yc CLI установлен и настроен
+          if ! command -v yc &> /dev/null; then curl -sSL https://storage.yandexcloud.net/yandexcloud-yc/install.sh | bash; echo "$HOME/yandex-cloud/bin" >> $GITHUB_PATH; fi
+          if ! $HOME/yandex-cloud/bin/yc config profile get sa-profile &> /dev/null; then echo '${{ secrets.YC_SA_JSON_CREDENTIALS }}' > sa-key.json; $HOME/yandex-cloud/bin/yc config profile create sa-profile; $HOME/yandex-cloud/bin/yc config set service-account-key sa-key.json; $HOME/yandex-cloud/bin/yc config set folder-id ${{ secrets.YC_FOLDER_ID }}; fi
+
+          CONTAINER_URL=$($HOME/yandex-cloud/bin/yc serverless container get "${YC_CONTAINER_NAME}" --format json | jq -r '.url')
+          echo "Deployed container URL: $CONTAINER_URL"
+          echo "CONTAINER_URL=$CONTAINER_URL" >> $GITHUB_ENV
+
+      - name: Wait for container initialization
+        run: |
+          echo "Миграции запускаются автоматически при старте контейнера через entrypoint.sh"
+          echo "Ожидаем 10 секунд, чтобы контейнер инициализировался..."
+          sleep 10
+
+      # Шаги получения ID контейнера, обновления API Gateway и Health Check удалены.
+      # Управление API Gateway вынесено в отдельный workflow: update_api_gateway.yml
