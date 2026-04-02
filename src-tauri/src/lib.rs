@@ -13,6 +13,7 @@ pub fn run() {
         .plugin(tauri_plugin_shell::init())
         .plugin(tauri_plugin_global_shortcut::Builder::new().build())
         .plugin(tauri_plugin_updater::Builder::new().build())
+        .plugin(tauri_plugin_process::init())
         .setup(|app| {
             let db = db::connection::init_db(app.handle())?;
             app.manage(DbState::new(db));
@@ -37,6 +38,7 @@ pub fn run() {
             commands::task_commands::get_doing_tasks,
             commands::task_commands::get_promised_to_options,
             commands::task_commands::get_project_task_counts,
+            commands::task_commands::get_estimate_options,
             commands::changelog_commands::undo_last,
             commands::changelog_commands::redo_last,
             commands::changelog_commands::get_changelog,

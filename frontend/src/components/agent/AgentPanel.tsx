@@ -14,6 +14,7 @@ import SmartToyIcon from "@mui/icons-material/SmartToy";
 import SendIcon from "@mui/icons-material/Send";
 import PersonIcon from "@mui/icons-material/Person";
 import HistoryIcon from "@mui/icons-material/History";
+import ReplayIcon from "@mui/icons-material/Replay";
 import AddIcon from "@mui/icons-material/Add";
 import DeleteOutlineIcon from "@mui/icons-material/DeleteOutline";
 import ArrowBackIcon from "@mui/icons-material/ArrowBack";
@@ -22,6 +23,7 @@ import Markdown from "react-markdown";
 import remarkGfm from "remark-gfm";
 import { useTaskStore } from "@/stores/taskStore";
 import { useProjectStore } from "@/stores/projectStore";
+import { useUiStore } from "@/stores/uiStore";
 import { useHistoryStore } from "@/stores/historyStore";
 import { useChatStore } from "@/stores/chatStore";
 import { useI18n } from "@/i18n";
@@ -36,6 +38,7 @@ export default function AgentPanel() {
   const chatEndRef = useRef<HTMLDivElement>(null);
   const { load, loadDoing, remove, update, move: moveTask } = useTaskStore();
   const { selectedProjectId } = useProjectStore();
+  const { selectedTaskId } = useUiStore();
   const { refresh } = useHistoryStore();
   const { t, locale } = useI18n();
   const {
@@ -65,7 +68,7 @@ export default function AgentPanel() {
     setLoading(true);
 
     try {
-      const response = await api.agentChat(msg);
+      const response = await api.agentChat(msg, selectedTaskId ?? undefined);
       await addMessage("assistant", response.summary, response.actions, false);
     } catch (e) {
       const err = String(e);
@@ -85,23 +88,40 @@ export default function AgentPanel() {
     setLoading(true);
 
     try {
+      // Map placeholder task_ids from create actions to real ids
+      const idMap: Record<string, string> = {};
       for (const action of msg.actions) {
+        const resolveId = (id: string | null) =>
+          id ? idMap[id] || id : id;
+
         switch (action.action) {
           case "delete":
-            if (action.task_id) await remove(action.task_id);
+            if (action.task_id) await remove(resolveId(action.task_id)!);
             break;
           case "update":
             if (action.task_id && action.field)
-              await update(action.task_id, { [action.field]: action.value });
+              await update(resolveId(action.task_id)!, { [action.field]: action.value });
             break;
           case "move":
             if (action.task_id && action.value)
-              await moveTask(action.task_id, action.value as api.TaskStatus);
+              await moveTask(resolveId(action.task_id)!, action.value as api.TaskStatus);
             break;
           case "create":
             if (action.value) {
-              const projectId = action.field || selectedProjectId || undefined;
-              await api.createTask(action.value, projectId);
+              const projectId = action.project_id || action.field || selectedProjectId || undefined;
+              const created = await api.createTask(action.value, projectId);
+              const extra: Record<string, string> = {};
+              if (action.priority) extra.priority = action.priority;
+              if (action.due) extra.due = action.due;
+              if (action.dod) extra.dod = action.dod;
+              if (action.time_estimate) extra.time_estimate = action.time_estimate;
+              if (action.promised_to) extra.promised_to = action.promised_to;
+              if (Object.keys(extra).length > 0) {
+                await update(created.id, extra);
+              }
+              if (action.task_id) idMap[action.task_id] = created.id;
+              idMap["new_task"] = created.id;
+              idMap["new"] = created.id;
             }
             break;
           case "remember":
@@ -113,6 +133,27 @@ export default function AgentPanel() {
       if (selectedProjectId) await load(selectedProjectId);
       await loadDoing();
       await refresh();
+    } catch (e) {
+      await addMessage("assistant", String(e));
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const handleRegenerate = async (msgIndex: number) => {
+    // Find the user message before this assistant message
+    let userMsg = "";
+    for (let j = msgIndex - 1; j >= 0; j--) {
+      if (messages[j].role === "user") {
+        userMsg = messages[j].text;
+        break;
+      }
+    }
+    if (!userMsg || loading) return;
+    setLoading(true);
+    try {
+      const response = await api.agentChat(userMsg, selectedTaskId ?? undefined);
+      await addMessage("assistant", response.summary, response.actions, false);
     } catch (e) {
       await addMessage("assistant", String(e));
     } finally {
@@ -174,6 +215,9 @@ export default function AgentPanel() {
         ) : (
           <>
             <Typography variant="subtitle2" sx={{ flex: 1 }}>{t.agent}</Typography>
+            <IconButton size="small" onClick={handleNewChat} sx={{ color: "white" }} title={locale === "ru" ? "Новый чат" : "New chat"}>
+              <AddIcon fontSize="small" />
+            </IconButton>
             <IconButton size="small" onClick={() => setShowHistory(true)} sx={{ color: "white" }} title={locale === "ru" ? "История" : "History"}>
               <HistoryIcon fontSize="small" />
             </IconButton>
@@ -266,19 +310,29 @@ export default function AgentPanel() {
                   {msg.actions && msg.actions.length > 0 && (
                     <Box sx={{ mt: 0.5, display: "flex", flexDirection: "column", gap: 0.5 }}>
                       {msg.actions.slice(0, 8).map((a, j) => (
-                        <Chip key={j} label={a.description || a.value || a.action} size="small" variant="outlined" sx={{ justifyContent: "flex-start", fontSize: 11 }} />
+                        <Typography key={j} variant="body2" sx={{ fontSize: 12, py: 0.25, px: 1, bgcolor: "rgba(255,255,255,0.05)", borderRadius: 1 }}>
+                          {a.description || a.value || a.action}
+                        </Typography>
                       ))}
                       {msg.actions.length > 8 && (
                         <Typography variant="caption" color="text.secondary">{t.andMore(msg.actions.length - 8)}</Typography>
                       )}
                       {!msg.executed && (
-                        <Box sx={{ mt: 0.5, display: "flex", gap: 1 }}>
+                        <Box sx={{ mt: 0.5, display: "flex", gap: 1, alignItems: "center" }}>
                           <Button size="small" variant="contained" onClick={() => handleApply(i)}>{t.apply}</Button>
                           <Button size="small" onClick={() => markExecuted(msg.id)}>{t.cancel}</Button>
+                          <IconButton size="small" onClick={() => handleRegenerate(i)} title={locale === "ru" ? "Перегенерировать" : "Regenerate"}>
+                            <ReplayIcon sx={{ fontSize: 16 }} />
+                          </IconButton>
                         </Box>
                       )}
                       {msg.executed && <Chip label={t.applied} size="small" color="success" sx={{ mt: 0.5 }} />}
                     </Box>
+                  )}
+                  {msg.role === "assistant" && (!msg.actions || msg.actions.length === 0) && (
+                    <IconButton size="small" onClick={() => handleRegenerate(i)} sx={{ mt: 0.25, opacity: 0.4, "&:hover": { opacity: 1 } }} title={locale === "ru" ? "Перегенерировать" : "Regenerate"}>
+                      <ReplayIcon sx={{ fontSize: 14 }} />
+                    </IconButton>
                   )}
                 </Box>
               </Box>

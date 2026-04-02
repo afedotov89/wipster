@@ -28,7 +28,10 @@ pub fn list_tasks(
         params.push(Box::new(s.clone()));
     }
 
-    sql.push_str(" ORDER BY created_at ASC");
+    sql.push_str(" ORDER BY \
+        CASE priority WHEN 'p0' THEN 0 WHEN 'p1' THEN 1 WHEN 'p2' THEN 2 WHEN 'p3' THEN 3 ELSE 4 END ASC, \
+        CASE WHEN due IS NULL THEN 1 ELSE 0 END ASC, due ASC, \
+        created_at ASC");
 
     let mut stmt = conn.prepare(&sql).map_err(|e| e.to_string())?;
     let param_refs: Vec<&dyn rusqlite::types::ToSql> = params.iter().map(|p| p.as_ref()).collect();
@@ -286,6 +289,26 @@ pub fn get_promised_to_options(db: State<'_, DbState>) -> Result<Vec<String>, St
             "SELECT promised_to, COUNT(*) as cnt FROM tasks \
              WHERE promised_to IS NOT NULL AND promised_to != '' \
              GROUP BY promised_to ORDER BY cnt DESC",
+        )
+        .map_err(|e| e.to_string())?;
+
+    let options = stmt
+        .query_map([], |row| row.get::<_, String>(0))
+        .map_err(|e| e.to_string())?
+        .filter_map(|r| r.ok())
+        .collect();
+
+    Ok(options)
+}
+
+#[tauri::command]
+pub fn get_estimate_options(db: State<'_, DbState>) -> Result<Vec<String>, String> {
+    let conn = db.0.lock().map_err(|e| e.to_string())?;
+    let mut stmt = conn
+        .prepare(
+            "SELECT time_estimate FROM tasks \
+             WHERE time_estimate IS NOT NULL AND time_estimate != '' \
+             GROUP BY time_estimate ORDER BY COUNT(*) DESC",
         )
         .map_err(|e| e.to_string())?;
 

@@ -97,8 +97,8 @@ export default function TaskCard({ task, onMove }: Props) {
         )}
       </Box>
       <Box sx={{ display: "flex", gap: 0.5, mt: 0.5, flexWrap: "wrap" }}>
-        {task.estimate && (
-          <Chip label={task.estimate.toUpperCase()} size="small" sx={{ height: 20, fontSize: 10 }} />
+        {task.time_estimate && (
+          <Chip label={task.time_estimate} size="small" sx={{ height: 20, fontSize: 10 }} />
         )}
         {task.due && (
           <Chip label={task.due} size="small" variant="outlined" sx={{ height: 20, fontSize: 10 }} />

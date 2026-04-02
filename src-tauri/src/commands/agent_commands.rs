@@ -43,8 +43,10 @@ fn get_setting_value(conn: &rusqlite::Connection, key: &str) -> Option<String> {
 pub async fn agent_chat(
     db: State<'_, DbState>,
     message: String,
+    focused_task_id: Option<String>,
 ) -> Result<AgentResponse, String> {
-    let (provider, api_key, model, tasks, projects, memory) = {
+    eprintln!("[agent_chat] received message: {}, focused_task: {:?}", message, focused_task_id);
+    let (provider, api_key, model, tasks, projects, memory, focused_task_context) = {
         let conn = db.0.lock().map_err(|e| e.to_string())?;
 
         let provider = get_setting_value(&conn, "llm_provider").unwrap_or_else(|| "anthropic".to_string());
@@ -114,10 +116,26 @@ pub async fn agent_chat(
 
         let memory = get_setting_value(&conn, "agent_memory").unwrap_or_default();
 
-        (provider, api_key, model, tasks, projects, memory)
+        let focused_task_context = focused_task_id.as_ref().and_then(|fid| {
+            tasks.iter().find(|t| &t.id == fid).map(|t| {
+                let project_name = t.project_id.as_ref().and_then(|pid| {
+                    projects.iter().find(|p| &p.id == pid).map(|p| p.name.clone())
+                }).unwrap_or_default();
+                format!(
+                    "Currently focused task: \"{}\" (id: {}, project: {}, status: {}, priority: {:?}, due: {:?}, dod: {:?}, promised_to: {:?})",
+                    t.title, t.id, project_name, t.status,
+                    t.priority, t.due, t.dod, t.promised_to
+                )
+            })
+        }).unwrap_or_default();
+
+        (provider, api_key, model, tasks, projects, memory, focused_task_context)
     };
 
-    let result = agent::chat(&provider, &api_key, &model, &message, &tasks, &projects, &memory).await?;
+    eprintln!("[agent_chat] calling LLM: provider={}, model={}, tasks={}, projects={}", provider, model, tasks.len(), projects.len());
+    let result = agent::chat(&provider, &api_key, &model, &message, &tasks, &projects, &memory, &focused_task_context).await;
+    eprintln!("[agent_chat] LLM result: {:?}", result.as_ref().map(|r| &r.summary));
+    let result = result?;
 
     // Process memory actions on backend
     {
@@ -155,14 +173,31 @@ pub async fn agent_chat(
         }
     }
 
-    // Filter out memory actions from response to frontend
+    // Enrich actions with task titles and filter out memory actions
     let filtered = AgentResponse {
         summary: result.summary.clone(),
         actions: result.actions.iter()
             .filter(|a| a.action != "remember" && a.action != "forget")
-            .cloned()
+            .map(|a| {
+                let mut enriched = a.clone();
+                // Auto-generate description if missing
+                if enriched.description.as_ref().map_or(true, |d| d.is_empty()) {
+                    let task_title = a.task_id.as_ref().and_then(|tid| {
+                        tasks.iter().find(|t| &t.id == tid).map(|t| t.title.clone())
+                    });
+                    enriched.description = Some(match a.action.as_str() {
+                        "create" => format!("+ {}", a.value.as_deref().unwrap_or("")),
+                        "delete" => format!("✕ {}", task_title.unwrap_or_default()),
+                        "move" => format!("{} → {}", task_title.unwrap_or_default(), a.value.as_deref().unwrap_or("")),
+                        "update" => format!("{}: {} = {}", task_title.unwrap_or_default(), a.field.as_deref().unwrap_or(""), a.value.as_deref().unwrap_or("")),
+                        _ => a.value.clone().unwrap_or_default(),
+                    });
+                }
+                enriched
+            })
             .collect(),
     };
 
+    eprintln!("[agent_chat] returning {} actions to frontend", filtered.actions.len());
     Ok(filtered)
 }

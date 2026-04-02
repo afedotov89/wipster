@@ -4,6 +4,7 @@ import AddIcon from "@mui/icons-material/Add";
 import { useTaskStore } from "@/stores/taskStore";
 import { useProjectStore } from "@/stores/projectStore";
 import { useHistoryStore } from "@/stores/historyStore";
+import { useUiStore } from "@/stores/uiStore";
 import { useI18n } from "@/i18n";
 
 export default function QuickAddInput() {
@@ -12,6 +13,7 @@ export default function QuickAddInput() {
   const { add } = useTaskStore();
   const { selectedProjectId } = useProjectStore();
   const { refresh } = useHistoryStore();
+  const { openDetail } = useUiStore();
   const { t } = useI18n();
 
   // Auto-focus when project changes
@@ -36,9 +38,10 @@ export default function QuickAddInput() {
     const title = value.trim();
     if (!title) return;
 
-    await add(title, selectedProjectId ?? undefined);
+    const task = await add(title, selectedProjectId ?? undefined);
     setValue("");
     await refresh();
+    openDetail(task.id);
   };
 
   return (

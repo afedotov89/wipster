@@ -115,6 +115,8 @@ export const getProjectTaskCounts = () => invoke<ProjectTaskCounts[]>("get_proje
 
 export const getPromisedToOptions = () => invoke<string[]>("get_promised_to_options");
 
+export const getEstimateOptions = () => invoke<string[]>("get_estimate_options");
+
 // ---- Changelog commands ----
 
 export const undoLast = () => invoke<ChangeLogEntry | null>("undo_last");
@@ -146,6 +148,13 @@ export interface AgentAction {
   field: string | null;
   value: string | null;
   description: string;
+  project_id?: string;
+  priority?: string;
+  due?: string;
+  status?: string;
+  dod?: string;
+  time_estimate?: string;
+  promised_to?: string;
 }
 
 export interface AgentResponse {
@@ -153,8 +162,8 @@ export interface AgentResponse {
   actions: AgentAction[];
 }
 
-export const agentChat = (message: string) =>
-  invoke<AgentResponse>("agent_chat", { message });
+export const agentChat = (message: string, focusedTaskId?: string) =>
+  invoke<AgentResponse>("agent_chat", { message, focusedTaskId });
 
 // ---- Chat session commands ----
 

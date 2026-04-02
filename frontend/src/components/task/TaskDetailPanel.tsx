@@ -16,16 +16,17 @@ import {
   Autocomplete,
 } from "@mui/material";
 import CloseIcon from "@mui/icons-material/Close";
+import DeleteOutlineIcon from "@mui/icons-material/DeleteOutline";
 import CheckBoxOutlineBlankIcon from "@mui/icons-material/CheckBoxOutlineBlank";
 import CheckBoxIcon from "@mui/icons-material/CheckBox";
 import { useUiStore } from "@/stores/uiStore";
 import { useTaskStore } from "@/stores/taskStore";
 import { useProjectStore } from "@/stores/projectStore";
 import { useHistoryStore } from "@/stores/historyStore";
-import { statusLabel, priorityLabel, estimateLabel, PRIORITIES, ESTIMATES } from "@/utils/constants";
+import { statusLabel, priorityLabel, PRIORITIES } from "@/utils/constants";
 import { useI18n } from "@/i18n";
 import { useAiAutocomplete } from "@/hooks/useAiAutocomplete";
-import { getPromisedToOptions } from "@/utils/tauri";
+import { getPromisedToOptions, getEstimateOptions } from "@/utils/tauri";
 import type { TaskStatus } from "@/utils/tauri";
 
 interface ChecklistItem {
@@ -98,7 +99,7 @@ function AiTextField({ label, fieldName, value, onChange, onBlur, multiline, row
 
 export default function TaskDetailPanel() {
   const { selectedTaskId, closeDetail } = useUiStore();
-  const { tasks, update } = useTaskStore();
+  const { tasks, update, remove } = useTaskStore();
   const { projects } = useProjectStore();
   const { refresh } = useHistoryStore();
   const { t } = useI18n();
@@ -111,8 +112,22 @@ export default function TaskDetailPanel() {
   const [timeEstimate, setTimeEstimate] = useState("");
   const [promisedTo, setPromisedTo] = useState("");
   const [promisedToOptions, setPromisedToOptions] = useState<string[]>([]);
+  const [estimateOptions, setEstimateOptions] = useState<string[]>([]);
   const [checklist, setChecklist] = useState<ChecklistItem[]>([]);
   const [newStep, setNewStep] = useState("");
+  const [confirmDelete, setConfirmDelete] = useState(false);
+
+  const handleDelete = async () => {
+    if (!confirmDelete) {
+      setConfirmDelete(true);
+      setTimeout(() => setConfirmDelete(false), 3000);
+      return;
+    }
+    if (!selectedTaskId) return;
+    closeDetail();
+    await remove(selectedTaskId);
+    await refresh();
+  };
 
   const {
     suggestion,
@@ -144,6 +159,7 @@ export default function TaskDetailPanel() {
 
   useEffect(() => {
     getPromisedToOptions().then(setPromisedToOptions).catch(() => {});
+    getEstimateOptions().then(setEstimateOptions).catch(() => {});
   }, []);
 
   const save = useCallback(
@@ -196,9 +212,14 @@ export default function TaskDetailPanel() {
           size="small"
           color={task.status === "doing" ? "warning" : "default"}
         />
-        <IconButton size="small" onClick={closeDetail}>
-          <CloseIcon fontSize="small" />
-        </IconButton>
+        <Box>
+          <IconButton size="small" onClick={handleDelete} title={t.delete} sx={confirmDelete ? { color: "error.main" } : { opacity: 0.4, "&:hover": { opacity: 1 } }}>
+            <DeleteOutlineIcon fontSize="small" />
+          </IconButton>
+          <IconButton size="small" onClick={closeDetail}>
+            <CloseIcon fontSize="small" />
+          </IconButton>
+        </Box>
       </Box>
 
       <TextField
@@ -250,34 +271,28 @@ export default function TaskDetailPanel() {
         </ToggleButtonGroup>
       </Box>
 
-      <Box>
-        <Typography variant="caption" color="text.secondary">
-          {t.estimate}
-        </Typography>
-        <ToggleButtonGroup
-          exclusive
-          size="small"
-          value={task.estimate}
-          onChange={(_e, val) => save("estimate", val)}
-          sx={{ display: "flex", mt: 0.5 }}
-        >
-          {ESTIMATES.map((e) => (
-            <ToggleButton key={e} value={e} sx={{ flex: 1, fontSize: 12, py: 0.5 }}>
-              {estimateLabel(t, e)}
-            </ToggleButton>
-          ))}
-        </ToggleButtonGroup>
-      </Box>
-
-      <TextField
-        fullWidth
+      <Autocomplete
+        freeSolo
         size="small"
-        label={t.timeEstimate}
-        placeholder={t.timeEstimatePlaceholder}
+        options={[...new Set(["30м", "1ч", "2ч", "4ч", "1д", "2д", "3д", "1н", "2н", ...estimateOptions])]}
         value={timeEstimate}
-        onChange={(e) => setTimeEstimate(e.target.value)}
-        onBlur={() => save("time_estimate", timeEstimate)}
-        sx={{ "& .MuiInputBase-input": { fontSize: 13 } }}
+        onInputChange={(_e, val) => setTimeEstimate(val)}
+        onBlur={() => {
+          const val = timeEstimate.trim();
+          if (val !== (task.time_estimate ?? "")) {
+            save("time_estimate", val);
+            if (val && !estimateOptions.includes(val)) {
+              setEstimateOptions((prev) => [...new Set([...prev, val])]);
+            }
+          }
+        }}
+        renderInput={(params) => (
+          <TextField
+            {...params}
+            label={t.estimate}
+            sx={{ "& .MuiInputBase-input": { fontSize: 13 } }}
+          />
+        )}
       />
 
       <TextField

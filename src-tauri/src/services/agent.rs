@@ -88,8 +88,7 @@ fn build_system_prompt(tasks: &[Task], projects: &[Project], memory: &str) -> St
                 "status": t.status,
                 "priority": t.priority,
                 "due": t.due,
-                "estimate": t.estimate,
-                "time_estimate": t.time_estimate,
+                "estimate": t.time_estimate,
                 "project_id": t.project_id,
                 "promised_to": t.promised_to,
                 "dod": t.dod,
@@ -108,8 +107,11 @@ fn build_system_prompt(tasks: &[Task], projects: &[Project], memory: &str) -> St
         format!("\nYour memory (facts you remembered about the user):\n{}\n", memory)
     };
 
+    let today = chrono::Local::now().format("%Y-%m-%d").to_string();
+
     format!(
         r#"You are Wipster's task management assistant. You help the user manage tasks via natural language.
+Today's date: {today}
 {memory_section}
 Projects:
 {projects}
@@ -124,16 +126,28 @@ You MUST respond with valid JSON only, no markdown. Format:
 }}
 
 Available actions:
-- "update": update a task field. task_id required, field = "priority|due|estimate|time_estimate|title|dod|next_step|promised_to", value = new value.
+- "update": update a task field. task_id required, field = "priority|due|estimate|time_estimate|title|dod|next_step|promised_to|checklist", value = new value.
 - "delete": delete a task. task_id required.
 - "move": change task status. task_id required, field="status", value = "queue|doing|done|inbox".
-- "create": create a new task. value = task title, field = project_id (optional, use project id from list above).
-- "remember": save a fact to your memory. value = the fact to remember. Use this when the user tells you personal info (name, role, preferences) or project context worth persisting.
+- "create": create a new task. All fields in ONE action object:
+  {{
+    "action": "create",
+    "value": "task title",
+    "project_id": "project id from list above (if clear from context)",
+    "priority": "p0|p1|p2|p3 (if inferable)",
+    "due": "YYYY-MM-DD (if mentioned or inferable)",
+    "dod": "definition of done (if inferable from context)",
+    "time_estimate": "e.g. 1ч, 2д (if inferable)",
+    "promised_to": "person name (if mentioned)",
+    "description": "human-readable summary of the created task"
+  }}
+  Fill as many fields as you can confidently infer from the conversation and context. Do NOT use separate update actions for fields you can set in create.
+- "remember": save a fact to your memory. value = the fact to remember. Use when user shares personal info, preferences, or project context.
 - "forget": remove a fact from memory. value = substring to match and remove.
 
 Rules:
+- When creating tasks, MAXIMIZE the fields you fill in. Infer priority from urgency words, due from time references, project from context, dod from the task nature.
 - If user shares personal info (name, preferences), use "remember" to save it.
-- For "create", always set field to the appropriate project_id if context makes it clear which project the task belongs to.
 - If the request is unclear, return empty actions and explain in summary.
 - Respond in the same language as the user's message.
 - You can mix actions: e.g. remember + create + update in one response."#,
@@ -163,9 +177,16 @@ pub async fn chat(
     tasks: &[Task],
     projects: &[Project],
     memory: &str,
+    focused_task_context: &str,
 ) -> Result<AgentResponse, String> {
-    let system = build_system_prompt(tasks, projects, memory);
-    let client = Client::new();
+    let mut system = build_system_prompt(tasks, projects, memory);
+    if !focused_task_context.is_empty() {
+        system.push_str(&format!("\n\n{}\nWhen user says \"this task\" or \"эта задача\" or similar, they mean the focused task above.", focused_task_context));
+    }
+    let client = Client::builder()
+        .timeout(std::time::Duration::from_secs(30))
+        .build()
+        .map_err(|e| format!("HTTP client error: {}", e))?;
 
     let text = match provider {
         "openrouter" => {
