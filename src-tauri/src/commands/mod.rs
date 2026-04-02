@@ -1,0 +1,7 @@
+pub mod agent_commands;
+pub mod autocomplete_commands;
+pub mod changelog_commands;
+pub mod chat_commands;
+pub mod context_commands;
+pub mod project_commands;
+pub mod task_commands;

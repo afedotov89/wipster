@@ -1,0 +1,51 @@
+{
+  "$schema": "https://raw.githubusercontent.com/nickelpack/tauri/dev/crates/tauri-config-schema/schema.json",
+  "productName": "Wipster",
+  "version": "0.1.0",
+  "identifier": "com.wipster.app",
+  "build": {
+    "frontendDist": "../frontend/dist",
+    "devUrl": "http://localhost:1420",
+    "beforeDevCommand": { "script": "npm run dev", "cwd": "../frontend" },
+    "beforeBuildCommand": { "script": "npm run build", "cwd": "../frontend" }
+  },
+  "app": {
+    "withGlobalTauri": true,
+    "windows": [
+      {
+        "label": "main",
+        "title": "Wipster",
+        "width": 1200,
+        "height": 800,
+        "minWidth": 800,
+        "minHeight": 600,
+        "titleBarStyle": "Transparent",
+        "hiddenTitle": true,
+        "center": true
+      }
+    ]
+  },
+  "bundle": {
+    "active": true,
+    "targets": ["app", "dmg"],
+    "icon": [
+      "icons/32x32.png",
+      "icons/128x128.png",
+      "icons/128x128@2x.png",
+      "icons/icon.icns",
+      "icons/icon.ico"
+    ],
+    "macOS": {
+      "minimumSystemVersion": "10.15"
+    },
+    "createUpdaterArtifacts": "v1Compatible"
+  },
+  "plugins": {
+    "updater": {
+      "pubkey": "dW50cnVzdGVkIGNvbW1lbnQ6IG1pbmlzaWduIHB1YmxpYyBrZXk6IEQwNjYzMjkwMEM4QTFBQkIKUldTN0dvb01rREptMEdnWDJCaFhYRzNkcUY3U2xmTVZrK1o5Uk1kVlFUcnJwMm1NS3JBeTB2MlQK",
+      "endpoints": [
+        "https://github.com/afedotov89/wipster/releases/latest/download/latest.json"
+      ]
+    }
+  }
+}
