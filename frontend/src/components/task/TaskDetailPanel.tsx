@@ -111,6 +111,7 @@ export default function TaskDetailPanel() {
   const [due, setDue] = useState("");
   const [timeEstimate, setTimeEstimate] = useState("");
   const [promisedTo, setPromisedTo] = useState("");
+  const [comment, setComment] = useState("");
   const [promisedToOptions, setPromisedToOptions] = useState<string[]>([]);
   const [estimateOptions, setEstimateOptions] = useState<string[]>([]);
   const [checklist, setChecklist] = useState<ChecklistItem[]>([]);
@@ -145,6 +146,7 @@ export default function TaskDetailPanel() {
       setDue(task.due ?? "");
       setTimeEstimate(task.time_estimate ?? "");
       setPromisedTo(task.promised_to ?? "");
+      setComment(task.comment ?? "");
       let items: ChecklistItem[] = [];
       try { items = JSON.parse(task.checklist || "[]"); } catch { /* */ }
       // Migrate legacy next_step into checklist
@@ -448,26 +450,46 @@ export default function TaskDetailPanel() {
         )}
       </Box>
 
-      {task.return_ref && (
-        <>
-          <Divider />
-          <Box>
-            <Typography variant="caption" color="text.secondary">
-              {t.returnContext}
-            </Typography>
-            <Typography variant="body2" sx={{ fontSize: 12, mt: 0.5 }}>
-              {(() => {
-                try {
-                  const ctx = JSON.parse(task.return_ref);
-                  return `${ctx.app || "?"} — ${ctx.window_title || ""}`;
-                } catch {
-                  return task.return_ref;
-                }
-              })()}
-            </Typography>
-          </Box>
-        </>
-      )}
+      <Divider />
+
+      <TextField
+        fullWidth
+        size="small"
+        label={t.comment}
+        multiline
+        minRows={3}
+        maxRows={20}
+        value={comment}
+        onChange={(e) => setComment(e.target.value)}
+        onBlur={() => save("comment", comment || null)}
+        sx={{ "& .MuiInputBase-input": { fontSize: 13 } }}
+        InputLabelProps={{ sx: { fontSize: 13 } }}
+      />
+
+      {task.return_ref && (() => {
+        try {
+          const ctx = JSON.parse(task.return_ref);
+          const app = ctx.app || "";
+          const title = ctx.window_title || "";
+          // Hide if useless (captured self or empty)
+          if (!app || app.toLowerCase() === "wipster" || (!app && !title)) return null;
+          return (
+            <>
+              <Divider />
+              <Box>
+                <Typography variant="caption" color="text.secondary">
+                  {t.returnContext}
+                </Typography>
+                <Typography variant="body2" sx={{ fontSize: 12, mt: 0.5 }}>
+                  {app}{title ? ` — ${title}` : ""}
+                </Typography>
+              </Box>
+            </>
+          );
+        } catch {
+          return null;
+        }
+      })()}
     </Box>
   );
 }

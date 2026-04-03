@@ -66,7 +66,7 @@ pub async fn agent_chat(
         let mut stmt = conn
             .prepare(
                 "SELECT id, title, project_id, status, priority, due, estimate, time_estimate, tags, \
-                 dod, checklist, next_step, return_ref, promised_to, created_at, updated_at FROM tasks",
+                 dod, checklist, next_step, return_ref, promised_to, comment, created_at, updated_at FROM tasks",
             )
             .map_err(|e| e.to_string())?;
 
@@ -87,8 +87,9 @@ pub async fn agent_chat(
                     next_step: row.get(11)?,
                     return_ref: row.get(12)?,
                     promised_to: row.get(13)?,
-                    created_at: row.get(14)?,
-                    updated_at: row.get(15)?,
+                    comment: row.get(14)?,
+                    created_at: row.get(15)?,
+                    updated_at: row.get(16)?,
                 })
             })
             .map_err(|e| e.to_string())?

@@ -135,19 +135,13 @@ pub async fn fetch_issue(token: &str, org_id: &str, issue_key: &str) -> Result<T
 pub async fn enrich_context(
     token: &str,
     org_id: &str,
-    task_title: &str,
-    task_dod: Option<&str>,
-    task_next_step: Option<&str>,
+    fields: &[Option<&str>],
 ) -> String {
-    let mut all_text = task_title.to_string();
-    if let Some(dod) = task_dod {
-        all_text.push(' ');
-        all_text.push_str(dod);
-    }
-    if let Some(ns) = task_next_step {
-        all_text.push(' ');
-        all_text.push_str(ns);
-    }
+    let all_text: String = fields
+        .iter()
+        .filter_map(|f| *f)
+        .collect::<Vec<_>>()
+        .join(" ");
 
     let keys = find_tracker_refs(&all_text);
     if keys.is_empty() {

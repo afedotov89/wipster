@@ -37,6 +37,7 @@ pub struct Task {
     pub next_step: Option<String>,
     pub return_ref: Option<String>,
     pub promised_to: Option<String>,
+    pub comment: Option<String>,
     pub created_at: String,
     pub updated_at: String,
 }
@@ -63,6 +64,7 @@ pub struct UpdateTaskInput {
     pub next_step: Option<String>,
     pub return_ref: Option<String>,
     pub promised_to: Option<String>,
+    pub comment: Option<String>,
 }
 
 #[derive(Debug, Serialize, Deserialize)]

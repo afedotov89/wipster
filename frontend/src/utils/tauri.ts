@@ -31,6 +31,7 @@ export interface Task {
   next_step: string | null;
   return_ref: string | null;
   promised_to: string | null;
+  comment: string | null;
   created_at: string;
   updated_at: string;
 }
@@ -210,3 +211,14 @@ export const deleteChatSession = (sessionId: string) =>
 
 export const aiAutocomplete = (taskId: string, fieldName: string, currentValue: string) =>
   invoke<string>("ai_autocomplete", { taskId, fieldName, currentValue });
+
+// ---- Tracker ----
+
+export interface DeviceAuthStart {
+  user_code: string;
+  verification_url: string;
+}
+
+export const trackerStartAuth = () => invoke<DeviceAuthStart>("tracker_start_auth");
+export const trackerPollToken = () => invoke<string>("tracker_poll_token");
+export const trackerStatus = () => invoke<boolean>("tracker_status");

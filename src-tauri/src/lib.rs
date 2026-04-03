@@ -54,6 +54,9 @@ pub fn run() {
             commands::chat_commands::add_chat_message,
             commands::chat_commands::update_chat_message,
             commands::chat_commands::delete_chat_session,
+            commands::tracker_commands::tracker_start_auth,
+            commands::tracker_commands::tracker_poll_token,
+            commands::tracker_commands::tracker_status,
         ])
         .run(tauri::generate_context!())
         .expect("error while running Wipster");

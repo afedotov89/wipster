@@ -30,14 +30,14 @@ pub async fn ai_autocomplete(
 
         let task: Task = conn.query_row(
             "SELECT id, title, project_id, status, priority, due, estimate, time_estimate, tags, \
-             dod, checklist, next_step, return_ref, promised_to, created_at, updated_at FROM tasks WHERE id = ?1",
+             dod, checklist, next_step, return_ref, promised_to, comment, created_at, updated_at FROM tasks WHERE id = ?1",
             [&task_id],
             |row| Ok(Task {
                 id: row.get(0)?, title: row.get(1)?, project_id: row.get(2)?,
                 status: row.get(3)?, priority: row.get(4)?, due: row.get(5)?,
                 estimate: row.get(6)?, time_estimate: row.get(7)?, tags: row.get(8)?, dod: row.get(9)?,
                 checklist: row.get(10)?, next_step: row.get(11)?, return_ref: row.get(12)?,
-                promised_to: row.get(13)?, created_at: row.get(14)?, updated_at: row.get(15)?,
+                promised_to: row.get(13)?, comment: row.get(14)?, created_at: row.get(15)?, updated_at: row.get(16)?,
             }),
         ).map_err(|e| format!("Task not found: {}", e))?;
 
@@ -74,9 +74,7 @@ Rules:
     let tracker_context = if let Some((token, org_id)) = &tracker_creds {
         crate::services::tracker::enrich_context(
             token, org_id,
-            &task.title,
-            task.dod.as_deref(),
-            task.next_step.as_deref(),
+            &[Some(task.title.as_str()), task.dod.as_deref(), task.next_step.as_deref()],
         ).await
     } else {
         String::new()

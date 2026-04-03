@@ -81,6 +81,11 @@ pub fn run(conn: &Connection) -> Result<(), Box<dyn std::error::Error>> {
         )?;
     }
 
+    if version < 7 {
+        conn.execute_batch("ALTER TABLE tasks ADD COLUMN comment TEXT;")?;
+        conn.execute("INSERT OR REPLACE INTO schema_version (version) VALUES (?1)", [7])?;
+    }
+
     Ok(())
 }
 

@@ -5543,11 +5543,12 @@ dependencies = [
 
 [[package]]
 name = "wipster"
-version = "0.1.0"
+version = "0.2.0"
 dependencies = [
  "chrono",
  "core-foundation 0.10.1",
  "core-graphics 0.24.0",
+ "open",
  "png",
  "regex-lite",
  "reqwest 0.12.28",

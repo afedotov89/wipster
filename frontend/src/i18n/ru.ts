@@ -37,6 +37,7 @@ const ru = {
   timeEstimate: "Оценка времени",
   timeEstimatePlaceholder: "напр. 2ч, 3д",
   promisedTo: "Кому обещано",
+  comment: "Комментарий",
 
   // Quick Add
   addTaskPlaceholder: "Добавить задачу... (⌘N)",
@@ -80,7 +81,7 @@ const ru = {
   yandexTracker: "Яндекс Трекер",
   trackerToken: "OAuth-токен",
   trackerOrgId: "ID организации",
-  trackerHelp: "Ссылки на тикеты в названиях задач автоматически обогатят контекст ИИ",
+  trackerHelp: "Ссылки на тикеты в любом поле задачи автоматически обогатят контекст ИИ",
 
   // Agent
   agent: "Агент",

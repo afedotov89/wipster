@@ -22,14 +22,19 @@ export const useProjectStore = create<ProjectState>((set, get) => ({
     set({ loading: true });
     try {
       const projects = await api.listProjects();
-      set({ projects, loading: false });
+      const lastId = localStorage.getItem("wipster-last-project");
+      const restored = lastId && projects.some((p) => p.id === lastId) ? lastId : null;
+      set({ projects, loading: false, selectedProjectId: restored });
     } catch (e) {
       console.error("Failed to load projects:", e);
       set({ loading: false });
     }
   },
 
-  select: (id) => set({ selectedProjectId: id }),
+  select: (id) => {
+    set({ selectedProjectId: id });
+    if (id) localStorage.setItem("wipster-last-project", id);
+  },
 
   add: async (name) => {
     const project = await api.createProject(name);

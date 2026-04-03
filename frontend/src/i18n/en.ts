@@ -37,6 +37,7 @@ const en = {
   timeEstimate: "Time estimate",
   timeEstimatePlaceholder: "e.g. 2h, 3d",
   promisedTo: "Promised to",
+  comment: "Comment",
 
   // Quick Add
   addTaskPlaceholder: "Add task... (⌘N)",
@@ -80,7 +81,7 @@ const en = {
   yandexTracker: "Yandex Tracker",
   trackerToken: "OAuth Token",
   trackerOrgId: "Organization ID",
-  trackerHelp: "Links to tracker issues in task titles will auto-enrich AI context",
+  trackerHelp: "Tracker issue links in any task field will auto-enrich AI context",
 
   // Agent
   agent: "Agent",

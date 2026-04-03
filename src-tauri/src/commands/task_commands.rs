@@ -15,7 +15,7 @@ pub fn list_tasks(
 
     let mut sql = String::from(
         "SELECT id, title, project_id, status, priority, due, estimate, time_estimate, tags, \
-         dod, checklist, next_step, return_ref, promised_to, created_at, updated_at FROM tasks WHERE 1=1",
+         dod, checklist, next_step, return_ref, promised_to, comment, created_at, updated_at FROM tasks WHERE 1=1",
     );
     let mut params: Vec<Box<dyn rusqlite::types::ToSql>> = Vec::new();
 
@@ -53,8 +53,9 @@ pub fn list_tasks(
                 next_step: row.get(11)?,
                 return_ref: row.get(12)?,
                 promised_to: row.get(13)?,
-                created_at: row.get(14)?,
-                updated_at: row.get(15)?,
+                comment: row.get(14)?,
+                created_at: row.get(15)?,
+                updated_at: row.get(16)?,
             })
         })
         .map_err(|e| e.to_string())?
@@ -140,6 +141,7 @@ pub fn update_task(
     add_field!(next_step, "next_step");
     add_field!(return_ref, "return_ref");
     add_field!(promised_to, "promised_to");
+    add_field!(comment, "comment");
 
     if updates.is_empty() {
         return Ok(old);
@@ -362,7 +364,7 @@ pub fn get_doing_tasks(db: State<'_, DbState>) -> Result<Vec<Task>, String> {
 fn get_task_by_id(conn: &rusqlite::Connection, id: &str) -> Result<Task, String> {
     conn.query_row(
         "SELECT id, title, project_id, status, priority, due, estimate, time_estimate, tags, \
-         dod, checklist, next_step, return_ref, promised_to, created_at, updated_at \
+         dod, checklist, next_step, return_ref, promised_to, comment, created_at, updated_at \
          FROM tasks WHERE id = ?1",
         [id],
         |row| {
@@ -381,8 +383,9 @@ fn get_task_by_id(conn: &rusqlite::Connection, id: &str) -> Result<Task, String>
                 next_step: row.get(11)?,
                 return_ref: row.get(12)?,
                 promised_to: row.get(13)?,
-                created_at: row.get(14)?,
-                updated_at: row.get(15)?,
+                comment: row.get(14)?,
+                created_at: row.get(15)?,
+                updated_at: row.get(16)?,
             })
         },
     )

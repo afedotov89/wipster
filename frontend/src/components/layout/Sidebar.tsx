@@ -49,8 +49,13 @@ export default function Sidebar() {
   const [counts, setCounts] = useState<ProjectTaskCounts[]>([]);
 
   useEffect(() => {
-    load();
-  }, [load]);
+    load().then(() => {
+      const lastId = localStorage.getItem("wipster-last-project");
+      if (lastId && useProjectStore.getState().selectedProjectId) {
+        setView("project");
+      }
+    });
+  }, [load, setView]);
 
   useEffect(() => {
     const loadCounts = () => {

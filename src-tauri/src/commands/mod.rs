@@ -5,3 +5,4 @@ pub mod chat_commands;
 pub mod context_commands;
 pub mod project_commands;
 pub mod task_commands;
+pub mod tracker_commands;

@@ -9,7 +9,7 @@ import {
   Divider,
   Chip,
 } from "@mui/material";
-import { useI18n } from "@/i18n";
+import { useI18n, type Translations } from "@/i18n";
 import { useLogStore } from "@/stores/logStore";
 import * as api from "@/utils/tauri";
 
@@ -21,8 +21,6 @@ export default function SettingsView() {
   const [anthropicKey, setAnthropicKey] = useState("");
   const [openrouterKey, setOpenrouterKey] = useState("");
   const [model, setModel] = useState("");
-  const [trackerToken, setTrackerToken] = useState("");
-  const [trackerOrgId, setTrackerOrgId] = useState("");
   const [saved, setSaved] = useState("");
 
   useEffect(() => {
@@ -31,15 +29,11 @@ export default function SettingsView() {
       api.getSetting("anthropic_api_key"),
       api.getSetting("openrouter_api_key"),
       api.getSetting("llm_model"),
-      api.getSetting("tracker_token"),
-      api.getSetting("tracker_org_id"),
-    ]).then(([p, ak, ok, m, tt, to]) => {
+    ]).then(([p, ak, ok, m]) => {
       if (p === "openrouter") setProvider("openrouter");
       if (ak) setAnthropicKey(ak);
       if (ok) setOpenrouterKey(ok);
       if (m) setModel(m);
-      if (tt) setTrackerToken(tt);
-      if (to) setTrackerOrgId(to);
     }).catch(() => {});
   }, []);
 
@@ -56,11 +50,6 @@ export default function SettingsView() {
     showSaved("ai");
   };
 
-  const handleSaveTracker = async () => {
-    await api.setSetting("tracker_token", trackerToken);
-    await api.setSetting("tracker_org_id", trackerOrgId);
-    showSaved("tracker");
-  };
 
   const defaultModel = provider === "openrouter" ? "anthropic/claude-sonnet-4" : "claude-sonnet-4-20250514";
   const activeKey = provider === "anthropic" ? anthropicKey : openrouterKey;
@@ -152,42 +141,7 @@ export default function SettingsView() {
           {t.integrations}
         </Typography>
 
-        <Typography variant="body2" sx={{ fontWeight: 500 }}>
-          {t.yandexTracker}
-        </Typography>
-
-        <TextField
-          fullWidth
-          size="small"
-          type="password"
-          label={t.trackerToken}
-          placeholder="y0_..."
-          value={trackerToken}
-          onChange={(e) => setTrackerToken(e.target.value)}
-          InputProps={{ sx: { fontSize: 13 } }}
-          InputLabelProps={{ sx: { fontSize: 13 } }}
-        />
-
-        <TextField
-          fullWidth
-          size="small"
-          label={t.trackerOrgId}
-          value={trackerOrgId}
-          onChange={(e) => setTrackerOrgId(e.target.value)}
-          InputProps={{ sx: { fontSize: 13 } }}
-          InputLabelProps={{ sx: { fontSize: 13 } }}
-        />
-
-        <Typography variant="caption" color="text.secondary">
-          {t.trackerHelp}
-        </Typography>
-
-        <Box sx={{ display: "flex", alignItems: "center", gap: 1 }}>
-          <Button size="small" variant="contained" onClick={handleSaveTracker}>
-            {t.save}
-          </Button>
-          {saved === "tracker" && <Chip label={t.saved} size="small" color="success" />}
-        </Box>
+        <TrackerSection t={t} />
       </Box>
 
       <Divider sx={{ my: 3 }} />
@@ -238,6 +192,134 @@ function LogPanel() {
           </Box>
         </Box>
       )}
+    </Box>
+  );
+}
+
+function TrackerSection({ t }: { t: Translations }) {
+  const [clientId, setClientId] = useState("");
+  const [clientSecret, setClientSecret] = useState("");
+  const [orgId, setOrgId] = useState("");
+  const [needsOrgId, setNeedsOrgId] = useState(false);
+  const [connected, setConnected] = useState(false);
+  const [userCode, setUserCode] = useState("");
+  const [verifyUrl, setVerifyUrl] = useState("");
+  const [polling, setPolling] = useState(false);
+  const [message, setMessage] = useState("");
+
+  useEffect(() => {
+    Promise.all([
+      api.getSetting("tracker_client_id"),
+      api.getSetting("tracker_client_secret"),
+      api.getSetting("tracker_org_id"),
+      api.trackerStatus(),
+    ]).then(([cid, cs, oid, status]) => {
+      if (cid) setClientId(cid);
+      if (cs) setClientSecret(cs);
+      if (oid) setOrgId(oid);
+      setConnected(status);
+      if (!status && cid) setNeedsOrgId(true);
+    }).catch(() => {});
+  }, []);
+
+  const handleStartAuth = async () => {
+    if (!clientId) return;
+    await api.setSetting("tracker_client_id", clientId);
+    if (clientSecret) await api.setSetting("tracker_client_secret", clientSecret);
+    setMessage("");
+    try {
+      const result = await api.trackerStartAuth();
+      setUserCode(result.user_code);
+      setVerifyUrl(result.verification_url);
+
+      // Open browser
+      window.open(result.verification_url, "_blank");
+
+      // Start polling in background
+      setPolling(true);
+      try {
+        const msg = await api.trackerPollToken();
+        setMessage(msg);
+        setUserCode("");
+        setVerifyUrl("");
+        if (msg.includes("Org ID") && !msg.includes("Подключено")) {
+          setNeedsOrgId(true);
+        } else {
+          setConnected(true);
+          setNeedsOrgId(false);
+        }
+      } catch (e) {
+        setMessage(String(e));
+      } finally {
+        setPolling(false);
+      }
+    } catch (e) {
+      setMessage(String(e));
+    }
+  };
+
+  return (
+    <Box sx={{ display: "flex", flexDirection: "column", gap: 2 }}>
+      <Box sx={{ display: "flex", alignItems: "center", gap: 1 }}>
+        <Typography variant="body2" sx={{ fontWeight: 500 }}>
+          {t.yandexTracker}
+        </Typography>
+        {connected && <Chip label="✓" size="small" color="success" sx={{ height: 20 }} />}
+      </Box>
+
+      <TextField fullWidth size="small" label="Client ID" value={clientId} onChange={(e) => setClientId(e.target.value)} InputProps={{ sx: { fontSize: 13 } }} InputLabelProps={{ sx: { fontSize: 13 } }} />
+      <TextField fullWidth size="small" type="password" label="Client Secret" value={clientSecret} onChange={(e) => setClientSecret(e.target.value)} InputProps={{ sx: { fontSize: 13 } }} InputLabelProps={{ sx: { fontSize: 13 } }} />
+
+      <Button size="small" variant={connected ? "outlined" : "contained"} onClick={handleStartAuth} disabled={!clientId || !clientSecret || polling}>
+        {polling ? "Ожидание авторизации..." : connected ? "Переподключить" : "Подключить"}
+      </Button>
+
+      {userCode && (
+        <Box sx={{ p: 1.5, bgcolor: "rgba(255,255,255,0.05)", borderRadius: 1 }}>
+          <Typography variant="body2" sx={{ mb: 1 }}>
+            Откройте <a href={verifyUrl} target="_blank" rel="noreferrer" style={{ color: "#4DB6AC" }}>{verifyUrl}</a> и введите код:
+          </Typography>
+          <Typography variant="h5" sx={{ fontFamily: "monospace", fontWeight: 700, letterSpacing: 4, textAlign: "center" }}>
+            {userCode}
+          </Typography>
+          {polling && (
+            <Typography variant="caption" color="text.secondary" sx={{ display: "block", textAlign: "center", mt: 1 }}>
+              Автоматически подключится после авторизации...
+            </Typography>
+          )}
+        </Box>
+      )}
+
+      {needsOrgId && (
+        <Box sx={{ display: "flex", gap: 1, alignItems: "flex-end" }}>
+          <TextField
+            fullWidth
+            size="small"
+            label="Org ID"
+            value={orgId}
+            onChange={(e) => setOrgId(e.target.value)}
+            InputProps={{ sx: { fontSize: 13 } }}
+            InputLabelProps={{ sx: { fontSize: 13 } }}
+          />
+          <Button
+            size="small"
+            variant="contained"
+            disabled={!orgId.trim()}
+            onClick={async () => {
+              await api.setSetting("tracker_org_id", orgId.trim());
+              setConnected(true);
+              setNeedsOrgId(false);
+              setMessage("Подключено!");
+            }}
+            sx={{ whiteSpace: "nowrap" }}
+          >
+            OK
+          </Button>
+        </Box>
+      )}
+
+      {message && <Typography variant="caption" color="text.secondary">{message}</Typography>}
+      <Typography variant="caption" color="text.secondary">{t.trackerHelp}</Typography>
     </Box>
   );
 }
