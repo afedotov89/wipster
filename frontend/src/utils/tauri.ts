@@ -32,6 +32,7 @@ export interface Task {
   return_ref: string | null;
   promised_to: string | null;
   comment: string | null;
+  position: number | null;
   created_at: string;
   updated_at: string;
 }
@@ -222,3 +223,19 @@ export interface DeviceAuthStart {
 export const trackerStartAuth = () => invoke<DeviceAuthStart>("tracker_start_auth");
 export const trackerPollToken = () => invoke<string>("tracker_poll_token");
 export const trackerStatus = () => invoke<boolean>("tracker_status");
+
+export const reorderTasks = (taskIds: string[]) =>
+  invoke<void>("reorder_tasks", { taskIds });
+
+// ---- AI Fill ----
+
+export interface AiFillResult {
+  time_estimate: string | null;
+  dod: string | null;
+  priority: string | null;
+  promised_to: string | null;
+  checklist: string | null;
+}
+
+export const aiFillTask = (taskId: string) =>
+  invoke<AiFillResult>("ai_fill_task", { taskId });

@@ -1,4 +1,15 @@
-import { useEffect, useState, useCallback } from "react";
+import { useEffect, useState, useCallback, useRef } from "react";
+import {
+  DndContext,
+  closestCenter,
+  PointerSensor,
+  useSensor,
+  useSensors,
+  type DragEndEvent,
+} from "@dnd-kit/core";
+import { SortableContext, verticalListSortingStrategy, useSortable, arrayMove } from "@dnd-kit/sortable";
+import { CSS } from "@dnd-kit/utilities";
+import DragIndicatorIcon from "@mui/icons-material/DragIndicator";
 import {
   Box,
   Typography,
@@ -16,7 +27,7 @@ import {
   Autocomplete,
 } from "@mui/material";
 import CloseIcon from "@mui/icons-material/Close";
-import DeleteOutlineIcon from "@mui/icons-material/DeleteOutline";
+import AutoAwesomeIcon from "@mui/icons-material/AutoAwesome";
 import CheckBoxOutlineBlankIcon from "@mui/icons-material/CheckBoxOutlineBlank";
 import CheckBoxIcon from "@mui/icons-material/CheckBox";
 import { useUiStore } from "@/stores/uiStore";
@@ -26,7 +37,7 @@ import { useHistoryStore } from "@/stores/historyStore";
 import { statusLabel, priorityLabel, PRIORITIES } from "@/utils/constants";
 import { useI18n } from "@/i18n";
 import { useAiAutocomplete } from "@/hooks/useAiAutocomplete";
-import { getPromisedToOptions, getEstimateOptions } from "@/utils/tauri";
+import { getPromisedToOptions, getEstimateOptions, aiFillTask } from "@/utils/tauri";
 import type { TaskStatus } from "@/utils/tauri";
 
 interface ChecklistItem {
@@ -97,12 +108,149 @@ function AiTextField({ label, fieldName, value, onChange, onBlur, multiline, row
   );
 }
 
+function SortableStep({ id, item, index, isNext, onToggle, onRemove, onEditText }: {
+  id: string;
+  item: ChecklistItem;
+  index: number;
+  isNext: boolean;
+  onToggle: (i: number) => void;
+  onRemove: (i: number) => void;
+  onEditText: (i: number, text: string) => void;
+}) {
+  const { attributes, listeners, setNodeRef, transform, transition, isDragging } = useSortable({ id });
+  const [editing, setEditing] = useState(false);
+  const [editText, setEditText] = useState(item.text);
+  const inputRef = useRef<HTMLInputElement>(null);
+
+  const style = {
+    transform: CSS.Transform.toString(transform),
+    transition: isDragging ? undefined : transition,
+    opacity: isDragging ? 0.4 : 1,
+  };
+
+  const commitEdit = () => {
+    setEditing(false);
+    if (editText.trim() && editText.trim() !== item.text) {
+      onEditText(index, editText.trim());
+    } else {
+      setEditText(item.text);
+    }
+  };
+
+  return (
+    <Box
+      ref={setNodeRef}
+      style={style}
+      sx={{
+        display: "flex",
+        alignItems: "center",
+        gap: 0.5,
+        py: 0.5,
+        px: 0.5,
+        borderRadius: 1,
+        "&:hover .step-actions": { opacity: 0.5 },
+        ...(isNext && { bgcolor: "rgba(46,125,111,0.10)" }),
+      }}
+    >
+      <Box {...attributes} {...listeners} sx={{ cursor: "grab", display: "flex", opacity: 0.2, "&:hover": { opacity: 0.5 }, flexShrink: 0 }}>
+        <DragIndicatorIcon sx={{ fontSize: 16 }} />
+      </Box>
+      <Box onClick={() => onToggle(index)} sx={{ cursor: "pointer", flexShrink: 0, display: "flex" }}>
+        {item.done
+          ? <CheckBoxIcon sx={{ fontSize: 18, color: "primary.main" }} />
+          : <CheckBoxOutlineBlankIcon sx={{ fontSize: 18, opacity: 0.5 }} />
+        }
+      </Box>
+      {editing ? (
+        <TextField
+          inputRef={inputRef}
+          autoFocus
+          fullWidth
+          size="small"
+          variant="standard"
+          value={editText}
+          onChange={(e) => setEditText(e.target.value)}
+          onBlur={commitEdit}
+          onKeyDown={(e) => {
+            if (e.key === "Enter") commitEdit();
+            if (e.key === "Escape") { setEditText(item.text); setEditing(false); }
+          }}
+          InputProps={{ sx: { fontSize: 13 } }}
+        />
+      ) : (
+        <Typography
+          onDoubleClick={() => { setEditing(true); setEditText(item.text); }}
+          sx={{
+            flex: 1,
+            fontSize: 13,
+            lineHeight: 1.5,
+            cursor: "default",
+            ...(isNext && { fontWeight: 600 }),
+            ...(item.done && { textDecoration: "line-through", opacity: 0.4 }),
+          }}
+        >
+          {item.text}
+        </Typography>
+      )}
+      <CloseIcon
+        className="step-actions"
+        onClick={(e) => { e.stopPropagation(); onRemove(index); }}
+        sx={{ fontSize: 14, flexShrink: 0, opacity: 0, cursor: "pointer" }}
+      />
+    </Box>
+  );
+}
+
+function ChecklistSortable({ items, onReorder, onToggle, onRemove, onEditText }: {
+  items: ChecklistItem[];
+  onReorder: (items: ChecklistItem[]) => void;
+  onToggle: (i: number) => void;
+  onRemove: (i: number) => void;
+  onEditText: (i: number, text: string) => void;
+}) {
+  const sensors = useSensors(useSensor(PointerSensor, { activationConstraint: { distance: 5 } }));
+  // Use text hash as stable ID so reorder doesn't confuse DnD
+  const ids = items.map((item, i) => `${i}-${item.text.slice(0, 20)}`);
+  const nextIdx = items.findIndex((i) => !i.done);
+
+  const handleDragEnd = (event: DragEndEvent) => {
+    const { active, over } = event;
+    if (!over || active.id === over.id) return;
+    const oldIndex = ids.indexOf(active.id as string);
+    const newIndex = ids.indexOf(over.id as string);
+    if (oldIndex !== -1 && newIndex !== -1) {
+      onReorder(arrayMove(items, oldIndex, newIndex));
+    }
+  };
+
+  return (
+    <DndContext sensors={sensors} collisionDetection={closestCenter} onDragEnd={handleDragEnd}>
+      <SortableContext items={ids} strategy={verticalListSortingStrategy}>
+        <Box sx={{ display: "flex", flexDirection: "column", gap: 0.25, mt: 0.5 }}>
+          {items.map((item, i) => (
+            <SortableStep
+              key={ids[i]}
+              id={ids[i]}
+              item={item}
+              index={i}
+              isNext={i === nextIdx}
+              onToggle={onToggle}
+              onRemove={onRemove}
+              onEditText={onEditText}
+            />
+          ))}
+        </Box>
+      </SortableContext>
+    </DndContext>
+  );
+}
+
 export default function TaskDetailPanel() {
   const { selectedTaskId, closeDetail } = useUiStore();
-  const { tasks, update, remove } = useTaskStore();
+  const { tasks, update } = useTaskStore();
   const { projects } = useProjectStore();
   const { refresh } = useHistoryStore();
-  const { t } = useI18n();
+  const { t, locale } = useI18n();
 
   const task = tasks.find((t) => t.id === selectedTaskId);
 
@@ -116,18 +264,36 @@ export default function TaskDetailPanel() {
   const [estimateOptions, setEstimateOptions] = useState<string[]>([]);
   const [checklist, setChecklist] = useState<ChecklistItem[]>([]);
   const [newStep, setNewStep] = useState("");
-  const [confirmDelete, setConfirmDelete] = useState(false);
+  const [aiFilling, setAiFilling] = useState(false);
 
-  const handleDelete = async () => {
-    if (!confirmDelete) {
-      setConfirmDelete(true);
-      setTimeout(() => setConfirmDelete(false), 3000);
-      return;
+  const handleAiFill = async () => {
+    if (!selectedTaskId || aiFilling) return;
+    setAiFilling(true);
+    try {
+      const result = await aiFillTask(selectedTaskId);
+      const updates: Record<string, string> = {};
+      if (result.time_estimate) { updates.time_estimate = result.time_estimate; setTimeEstimate(result.time_estimate); }
+      if (result.dod) { updates.dod = result.dod; setDod(result.dod); }
+      if (result.priority) { updates.priority = result.priority; }
+      if (result.checklist) {
+        try {
+          const items = JSON.parse(result.checklist);
+          if (Array.isArray(items) && items.length > 0) {
+            const merged = [...checklist, ...items];
+            updates.checklist = JSON.stringify(merged);
+            setChecklist(merged);
+          }
+        } catch { /* ignore bad JSON */ }
+      }
+      if (Object.keys(updates).length > 0) {
+        await update(selectedTaskId, updates);
+        await refresh();
+      }
+    } catch (e) {
+      console.error("AI fill failed:", e);
+    } finally {
+      setAiFilling(false);
     }
-    if (!selectedTaskId) return;
-    closeDetail();
-    await remove(selectedTaskId);
-    await refresh();
   };
 
   const {
@@ -212,11 +378,18 @@ export default function TaskDetailPanel() {
         <Chip
           label={statusLabel(t, task.status as TaskStatus)}
           size="small"
+          variant="outlined"
           color={task.status === "doing" ? "warning" : "default"}
         />
         <Box>
-          <IconButton size="small" onClick={handleDelete} title={t.delete} sx={confirmDelete ? { color: "error.main" } : { opacity: 0.4, "&:hover": { opacity: 1 } }}>
-            <DeleteOutlineIcon fontSize="small" />
+          <IconButton
+            size="small"
+            onClick={handleAiFill}
+            disabled={aiFilling}
+            title={locale === "ru" ? "Заполнить пустые поля с помощью ИИ" : "AI-fill empty fields"}
+            sx={{ color: "#F2A900", "&:hover": { color: "#FFD54F" } }}
+          >
+            {aiFilling ? <CircularProgress size={16} /> : <AutoAwesomeIcon fontSize="small" />}
           </IconButton>
           <IconButton size="small" onClick={closeDetail}>
             <CloseIcon fontSize="small" />
@@ -359,54 +532,18 @@ export default function TaskDetailPanel() {
             </Typography>
           )}
         </Typography>
-        {checklist.length > 0 && (() => {
-          const nextIdx = checklist.findIndex((i) => !i.done);
-          return (
-            <Box sx={{ display: "flex", flexDirection: "column", gap: 0.5, mt: 0.5 }}>
-              {checklist.map((item, i) => {
-                const isNext = i === nextIdx;
-                return (
-                  <Box
-                    key={i}
-                    onClick={() => toggleStep(i)}
-                    sx={{
-                      display: "flex",
-                      alignItems: "center",
-                      gap: 1,
-                      py: 0.75,
-                      px: 1,
-                      borderRadius: 1,
-                      cursor: "pointer",
-                      "&:hover .step-delete": { opacity: 0.5 },
-                      ...(isNext && { bgcolor: "rgba(46,125,111,0.10)" }),
-                    }}
-                  >
-                    {item.done
-                      ? <CheckBoxIcon sx={{ fontSize: 18, flexShrink: 0, color: "primary.main" }} />
-                      : <CheckBoxOutlineBlankIcon sx={{ fontSize: 18, flexShrink: 0, opacity: 0.5 }} />
-                    }
-                    <Typography
-                      sx={{
-                        flex: 1,
-                        fontSize: 13,
-                        lineHeight: 1.5,
-                        ...(isNext && { fontWeight: 600 }),
-                        ...(item.done && { textDecoration: "line-through", opacity: 0.4 }),
-                      }}
-                    >
-                      {item.text}
-                    </Typography>
-                    <CloseIcon
-                      className="step-delete"
-                      onClick={(e) => { e.stopPropagation(); removeStep(i); }}
-                      sx={{ fontSize: 14, flexShrink: 0, opacity: 0, cursor: "pointer" }}
-                    />
-                  </Box>
-                );
-              })}
-            </Box>
-          );
-        })()}
+        {checklist.length > 0 && (
+          <ChecklistSortable
+            items={checklist}
+            onReorder={(items) => saveChecklist(items)}
+            onToggle={toggleStep}
+            onRemove={removeStep}
+            onEditText={(index, text) => {
+              const updated = checklist.map((item, i) => i === index ? { ...item, text } : item);
+              saveChecklist(updated);
+            }}
+          />
+        )}
         <Box sx={{ mt: 1, position: "relative" }}>
           <TextField
             fullWidth
@@ -490,6 +627,7 @@ export default function TaskDetailPanel() {
           return null;
         }
       })()}
+
     </Box>
   );
 }

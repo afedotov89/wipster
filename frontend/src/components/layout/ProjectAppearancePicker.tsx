@@ -27,6 +27,7 @@ import LightbulbIcon from "@mui/icons-material/Lightbulb";
 import ShoppingCartIcon from "@mui/icons-material/ShoppingCart";
 import FitnessCenterIcon from "@mui/icons-material/FitnessCenter";
 import PaletteIcon from "@mui/icons-material/Palette";
+import CloseIcon from "@mui/icons-material/Close";
 import type { SvgIconComponent } from "@mui/icons-material";
 import { useI18n } from "@/i18n";
 
@@ -105,7 +106,12 @@ export default function ProjectAppearancePicker({
 
   return (
     <Dialog open={open} onClose={onClose} maxWidth="xs" fullWidth>
-      <DialogTitle sx={{ fontSize: 14, pb: 1 }}>{t.appearance}</DialogTitle>
+      <DialogTitle sx={{ fontSize: 14, pb: 1, display: "flex", alignItems: "center", justifyContent: "space-between" }}>
+        {t.appearance}
+        <IconButton size="small" onClick={onClose}>
+          <CloseIcon fontSize="small" />
+        </IconButton>
+      </DialogTitle>
       <DialogContent>
         <Typography variant="caption" color="text.secondary" sx={{ mb: 0.5, display: "block" }}>
           {t.icon}

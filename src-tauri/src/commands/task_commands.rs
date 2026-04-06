@@ -15,7 +15,7 @@ pub fn list_tasks(
 
     let mut sql = String::from(
         "SELECT id, title, project_id, status, priority, due, estimate, time_estimate, tags, \
-         dod, checklist, next_step, return_ref, promised_to, comment, created_at, updated_at FROM tasks WHERE 1=1",
+         dod, checklist, next_step, return_ref, promised_to, comment, position, created_at, updated_at FROM tasks WHERE 1=1",
     );
     let mut params: Vec<Box<dyn rusqlite::types::ToSql>> = Vec::new();
 
@@ -29,9 +29,9 @@ pub fn list_tasks(
     }
 
     sql.push_str(" ORDER BY \
+        COALESCE(position, 999999) ASC, \
         CASE priority WHEN 'p0' THEN 0 WHEN 'p1' THEN 1 WHEN 'p2' THEN 2 WHEN 'p3' THEN 3 ELSE 4 END ASC, \
-        CASE WHEN due IS NULL THEN 1 ELSE 0 END ASC, due ASC, \
-        created_at ASC");
+        created_at DESC");
 
     let mut stmt = conn.prepare(&sql).map_err(|e| e.to_string())?;
     let param_refs: Vec<&dyn rusqlite::types::ToSql> = params.iter().map(|p| p.as_ref()).collect();
@@ -53,9 +53,9 @@ pub fn list_tasks(
                 next_step: row.get(11)?,
                 return_ref: row.get(12)?,
                 promised_to: row.get(13)?,
-                comment: row.get(14)?,
-                created_at: row.get(15)?,
-                updated_at: row.get(16)?,
+                comment: row.get(14)?, position: row.get(15)?,
+                created_at: row.get(16)?,
+                updated_at: row.get(17)?,
             })
         })
         .map_err(|e| e.to_string())?
@@ -354,6 +354,20 @@ pub fn get_project_task_counts(db: State<'_, DbState>) -> Result<Vec<ProjectTask
     Ok(counts)
 }
 
+/// Update positions of tasks within a column. `task_ids` is the ordered list.
+#[tauri::command]
+pub fn reorder_tasks(db: State<'_, DbState>, task_ids: Vec<String>) -> Result<(), String> {
+    let conn = db.0.lock().map_err(|e| e.to_string())?;
+    for (pos, id) in task_ids.iter().enumerate() {
+        conn.execute(
+            "UPDATE tasks SET position = ?1, updated_at = datetime('now') WHERE id = ?2",
+            rusqlite::params![pos as i32, id],
+        )
+        .map_err(|e| e.to_string())?;
+    }
+    Ok(())
+}
+
 #[tauri::command]
 pub fn get_doing_tasks(db: State<'_, DbState>) -> Result<Vec<Task>, String> {
     let conn = db.0.lock().map_err(|e| e.to_string())?;
@@ -364,7 +378,7 @@ pub fn get_doing_tasks(db: State<'_, DbState>) -> Result<Vec<Task>, String> {
 fn get_task_by_id(conn: &rusqlite::Connection, id: &str) -> Result<Task, String> {
     conn.query_row(
         "SELECT id, title, project_id, status, priority, due, estimate, time_estimate, tags, \
-         dod, checklist, next_step, return_ref, promised_to, comment, created_at, updated_at \
+         dod, checklist, next_step, return_ref, promised_to, comment, position, created_at, updated_at \
          FROM tasks WHERE id = ?1",
         [id],
         |row| {
@@ -383,9 +397,9 @@ fn get_task_by_id(conn: &rusqlite::Connection, id: &str) -> Result<Task, String>
                 next_step: row.get(11)?,
                 return_ref: row.get(12)?,
                 promised_to: row.get(13)?,
-                comment: row.get(14)?,
-                created_at: row.get(15)?,
-                updated_at: row.get(16)?,
+                comment: row.get(14)?, position: row.get(15)?,
+                created_at: row.get(16)?,
+                updated_at: row.get(17)?,
             })
         },
     )

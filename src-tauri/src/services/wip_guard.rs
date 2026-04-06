@@ -13,7 +13,7 @@ pub fn check_wip(conn: &Connection, exclude_task_id: Option<&str>) -> WipCheckRe
     let mut stmt = conn
         .prepare(
             "SELECT id, title, project_id, status, priority, due, estimate, time_estimate, tags, \
-             dod, checklist, next_step, return_ref, promised_to, comment, created_at, updated_at \
+             dod, checklist, next_step, return_ref, promised_to, comment, position, created_at, updated_at \
              FROM tasks WHERE status = 'doing'",
         )
         .expect("Failed to prepare WIP check query");
@@ -35,9 +35,9 @@ pub fn check_wip(conn: &Connection, exclude_task_id: Option<&str>) -> WipCheckRe
                 next_step: row.get(11)?,
                 return_ref: row.get(12)?,
                 promised_to: row.get(13)?,
-                comment: row.get(14)?,
-                created_at: row.get(15)?,
-                updated_at: row.get(16)?,
+                comment: row.get(14)?, position: row.get(15)?,
+                created_at: row.get(16)?,
+                updated_at: row.get(17)?,
             })
         })
         .expect("Failed to query doing tasks")

@@ -141,7 +141,7 @@ export default function Sidebar() {
           sx={{ mx: 1, borderRadius: 1 }}
         >
           <ListItemIcon sx={{ minWidth: 32 }}>
-            <PlayCircleIcon fontSize="small" color="warning" />
+            <PlayCircleIcon fontSize="small" sx={{ color: "#F2A900" }} />
           </ListItemIcon>
           <ListItemText
             primary={t.allDoing}

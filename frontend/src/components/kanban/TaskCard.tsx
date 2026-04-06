@@ -1,11 +1,15 @@
-import { Box, Chip, IconButton, LinearProgress, Paper, Typography } from "@mui/material";
+import { useState } from "react";
+import { Box, Chip, IconButton, LinearProgress, Menu, MenuItem, ListItemIcon, Paper, Typography } from "@mui/material";
 import PlayArrowIcon from "@mui/icons-material/PlayArrow";
 import PauseIcon from "@mui/icons-material/Pause";
 import CheckCircleIcon from "@mui/icons-material/CheckCircle";
+import DeleteOutlineIcon from "@mui/icons-material/DeleteOutline";
 import type { Task, TaskStatus } from "@/utils/tauri";
 import { PRIORITY_COLORS } from "@/utils/constants";
 import type { Priority } from "@/utils/tauri";
 import { useUiStore } from "@/stores/uiStore";
+import { useTaskStore } from "@/stores/taskStore";
+import { useI18n } from "@/i18n";
 import { useSortable } from "@dnd-kit/sortable";
 import { CSS } from "@dnd-kit/utilities";
 
@@ -15,7 +19,11 @@ interface Props {
 }
 
 export default function TaskCard({ task, onMove }: Props) {
-  const { openDetail } = useUiStore();
+  const { openDetail, selectedTaskId, detailOpen, closeDetail } = useUiStore();
+  const { remove } = useTaskStore();
+  const { t } = useI18n();
+  const isSelected = detailOpen && selectedTaskId === task.id;
+  const [contextMenu, setContextMenu] = useState<{ x: number; y: number } | null>(null);
 
   const {
     attributes,
@@ -71,11 +79,22 @@ export default function TaskCard({ task, onMove }: Props) {
         display: "flex",
         flexDirection: "column",
         overflow: "hidden",
+        ...(isSelected && {
+          outline: "2px solid",
+          outlineColor: "primary.main",
+          outlineOffset: -2,
+        }),
       }}
       onClick={(e) => {
+        if (contextMenu) return;
         if (!(e.target as HTMLElement).closest("button")) {
           openDetail(task.id);
         }
+      }}
+      onContextMenu={(e) => {
+        e.preventDefault();
+        e.stopPropagation();
+        setContextMenu({ x: e.clientX, y: e.clientY });
       }}
     >
       <Box sx={{ p: 1.5, pb: checklist ? 0.5 : 1.5, display: "flex", gap: 0.5 }}>
@@ -166,6 +185,27 @@ export default function TaskCard({ task, onMove }: Props) {
           </Typography>
         </Box>
       )}
+      <Menu
+        open={contextMenu !== null}
+        onClose={() => setContextMenu(null)}
+        anchorReference="anchorPosition"
+        anchorPosition={contextMenu ? { top: contextMenu.y, left: contextMenu.x } : undefined}
+        slotProps={{ paper: { sx: { minWidth: 140 } } }}
+      >
+        <MenuItem
+          onClick={() => {
+            if (isSelected) closeDetail();
+            remove(task.id);
+            setContextMenu(null);
+          }}
+          sx={{ fontSize: 13, color: "error.main" }}
+        >
+          <ListItemIcon sx={{ minWidth: 28 }}>
+            <DeleteOutlineIcon fontSize="small" color="error" />
+          </ListItemIcon>
+          {t.delete}
+        </MenuItem>
+      </Menu>
     </Paper>
   );
 }

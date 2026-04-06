@@ -86,6 +86,21 @@ pub fn run(conn: &Connection) -> Result<(), Box<dyn std::error::Error>> {
         conn.execute("INSERT OR REPLACE INTO schema_version (version) VALUES (?1)", [7])?;
     }
 
+    if version < 8 {
+        conn.execute_batch("ALTER TABLE tasks ADD COLUMN position INTEGER;")?;
+        // Initialize positions from current order
+        conn.execute_batch(
+            "UPDATE tasks SET position = (
+                SELECT COUNT(*) FROM tasks t2
+                WHERE t2.project_id = tasks.project_id
+                AND t2.status = tasks.status
+                AND t2.created_at <= tasks.created_at
+                AND t2.id != tasks.id
+            )"
+        )?;
+        conn.execute("INSERT OR REPLACE INTO schema_version (version) VALUES (?1)", [8])?;
+    }
+
     Ok(())
 }
 

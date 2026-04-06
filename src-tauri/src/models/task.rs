@@ -38,6 +38,7 @@ pub struct Task {
     pub return_ref: Option<String>,
     pub promised_to: Option<String>,
     pub comment: Option<String>,
+    pub position: Option<i32>,
     pub created_at: String,
     pub updated_at: String,
 }
