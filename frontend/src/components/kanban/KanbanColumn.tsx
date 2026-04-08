@@ -18,12 +18,12 @@ interface Props {
 
 export default function KanbanColumn({ status, tasks, onMove }: Props) {
   const { setNodeRef, isOver } = useDroppable({ id: status });
-  const { t } = useI18n();
+  const { t, locale } = useI18n();
   const [doneLimit, setDoneLimit] = useState(DONE_PAGE_SIZE);
 
-  // Sort done tasks: newest (by updated_at) first
+  // Sort done tasks: newest (by completed_at) first
   const sorted = status === "done"
-    ? [...tasks].sort((a, b) => b.updated_at.localeCompare(a.updated_at))
+    ? [...tasks].sort((a, b) => (b.completed_at || b.updated_at).localeCompare(a.completed_at || a.updated_at))
     : tasks;
 
   const visible = status === "done" ? sorted.slice(0, doneLimit) : sorted;
@@ -71,9 +71,32 @@ export default function KanbanColumn({ status, tasks, onMove }: Props) {
           items={visible.map((t) => t.id)}
           strategy={verticalListSortingStrategy}
         >
-          {visible.map((task) => (
-            <TaskCard key={task.id} task={task} onMove={onMove} />
-          ))}
+          {visible.map((task, i) => {
+            const dateLabel = status === "done" ? (() => {
+              const d = (task.completed_at || task.updated_at).slice(0, 10);
+              const prev = i > 0 ? (visible[i - 1].completed_at || visible[i - 1].updated_at).slice(0, 10) : null;
+              if (prev === d) return null;
+              const today = new Date().toISOString().slice(0, 10);
+              const yesterday = new Date(Date.now() - 86400000).toISOString().slice(0, 10);
+              if (d === today) return locale === "ru" ? "Сегодня" : "Today";
+              if (d === yesterday) return locale === "ru" ? "Вчера" : "Yesterday";
+              return d;
+            })() : null;
+            return (
+              <Box key={task.id}>
+                {dateLabel && (
+                  <Box sx={{ display: "flex", alignItems: "center", gap: 1, py: 0.5, px: 0.5, mt: i > 0 ? 0.5 : 0 }}>
+                    <Box sx={{ flex: 1, height: "1px", bgcolor: "divider" }} />
+                    <Typography sx={{ fontSize: 10, color: "text.secondary", whiteSpace: "nowrap" }}>
+                      {dateLabel}
+                    </Typography>
+                    <Box sx={{ flex: 1, height: "1px", bgcolor: "divider" }} />
+                  </Box>
+                )}
+                <TaskCard task={task} onMove={onMove} />
+              </Box>
+            );
+          })}
         </SortableContext>
         {hasMore && (
           <Box

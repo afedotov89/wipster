@@ -101,6 +101,23 @@ pub fn run(conn: &Connection) -> Result<(), Box<dyn std::error::Error>> {
         conn.execute("INSERT OR REPLACE INTO schema_version (version) VALUES (?1)", [8])?;
     }
 
+    if version < 9 {
+        conn.execute_batch("ALTER TABLE tasks ADD COLUMN tracker_url TEXT;")?;
+        conn.execute("INSERT OR REPLACE INTO schema_version (version) VALUES (?1)", [9])?;
+    }
+
+    if version < 10 {
+        conn.execute_batch("ALTER TABLE tasks ADD COLUMN energy TEXT CHECK (energy IN ('low', 'medium', 'high'));")?;
+        conn.execute("INSERT OR REPLACE INTO schema_version (version) VALUES (?1)", [10])?;
+    }
+
+    if version < 11 {
+        conn.execute_batch("ALTER TABLE tasks ADD COLUMN completed_at TEXT;")?;
+        // Backfill: for existing done tasks, use updated_at as completed_at
+        conn.execute_batch("UPDATE tasks SET completed_at = updated_at WHERE status = 'done' AND completed_at IS NULL;")?;
+        conn.execute("INSERT OR REPLACE INTO schema_version (version) VALUES (?1)", [11])?;
+    }
+
     Ok(())
 }
 
@@ -122,7 +139,7 @@ mod tests {
         let conn = Connection::open_in_memory().unwrap();
         conn.execute_batch("PRAGMA foreign_keys=ON;").unwrap();
         run(&conn).unwrap();
-        assert_eq!(current_version(&conn), 6);
+        assert_eq!(current_version(&conn), 11);
     }
 
     #[test]
@@ -131,6 +148,6 @@ mod tests {
         conn.execute_batch("PRAGMA foreign_keys=ON;").unwrap();
         run(&conn).unwrap();
         run(&conn).unwrap();
-        assert_eq!(current_version(&conn), 6);
+        assert_eq!(current_version(&conn), 11);
     }
 }

@@ -3,7 +3,7 @@ use uuid::Uuid;
 
 use crate::db::connection::DbState;
 use crate::models::chat::{ChatMessage, ChatSession};
-use crate::services::agent::AgentAction;
+use crate::services::agent::ToolCallLog;
 
 #[tauri::command]
 pub fn create_chat_session(db: State<'_, DbState>) -> Result<ChatSession, String> {
@@ -68,7 +68,7 @@ pub fn get_chat_messages(
     let messages = stmt
         .query_map([&session_id], |row| {
             let actions_json: Option<String> = row.get(4)?;
-            let actions: Option<Vec<AgentAction>> = actions_json
+            let actions: Option<Vec<ToolCallLog>> = actions_json
                 .and_then(|j| serde_json::from_str(&j).ok());
             let executed: i32 = row.get(5)?;
 
@@ -77,7 +77,7 @@ pub fn get_chat_messages(
                 session_id: row.get(1)?,
                 role: row.get(2)?,
                 text: row.get(3)?,
-                actions,
+                tool_calls: actions,
                 executed: executed != 0,
                 created_at: row.get(6)?,
             })
@@ -118,7 +118,7 @@ pub fn add_chat_message(
         .map_err(|e| e.to_string())?;
     }
 
-    let actions: Option<Vec<AgentAction>> = actions_json
+    let actions: Option<Vec<ToolCallLog>> = actions_json
         .and_then(|j| serde_json::from_str(&j).ok());
 
     conn.query_row(
@@ -132,7 +132,7 @@ pub fn add_chat_message(
                 session_id: row.get(1)?,
                 role: row.get(2)?,
                 text: row.get(3)?,
-                actions,
+                tool_calls: actions,
                 executed: exec != 0,
                 created_at: row.get(5)?,
             })

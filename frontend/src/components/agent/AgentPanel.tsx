@@ -5,10 +5,11 @@ import {
   Typography,
   IconButton,
   Paper,
-  Button,
-  Chip,
+
+
   InputAdornment,
   CircularProgress,
+  Button,
 } from "@mui/material";
 import SmartToyIcon from "@mui/icons-material/SmartToy";
 import SendIcon from "@mui/icons-material/Send";
@@ -24,27 +25,27 @@ import remarkGfm from "remark-gfm";
 import { useTaskStore } from "@/stores/taskStore";
 import { useProjectStore } from "@/stores/projectStore";
 import { useUiStore } from "@/stores/uiStore";
-import { useHistoryStore } from "@/stores/historyStore";
 import { useChatStore } from "@/stores/chatStore";
 import { useI18n } from "@/i18n";
+import { appLog } from "@/stores/logStore";
 import * as api from "@/utils/tauri";
 
 export default function AgentPanel() {
   const [input, setInput] = useState("");
   const [visible, setVisible] = useState(false);
   const [loading, setLoading] = useState(false);
+  const [pendingConfirmations, setPendingConfirmations] = useState<api.PendingToolCall[]>([]);
   const [showHistory, setShowHistory] = useState(false);
   const inputRef = useRef<HTMLInputElement>(null);
   const chatEndRef = useRef<HTMLDivElement>(null);
-  const { load, loadDoing, remove, update, move: moveTask } = useTaskStore();
+  const { load, loadDoing } = useTaskStore();
   const { selectedProjectId } = useProjectStore();
   const { selectedTaskId } = useUiStore();
-  const { refresh } = useHistoryStore();
   const { t, locale } = useI18n();
   const {
     sessions, currentSessionId, messages,
     loadSessions, newSession, openSession,
-    addMessage, markExecuted, deleteSession,
+    addMessage, deleteSession,
   } = useChatStore();
 
   const [initialized, setInitialized] = useState(false);
@@ -68,73 +69,28 @@ export default function AgentPanel() {
     setLoading(true);
 
     try {
-      const response = await api.agentChat(msg, selectedTaskId ?? undefined);
-      await addMessage("assistant", response.summary, response.actions, false);
+      // Build history from previous messages (last 20 max)
+      const hist: [string, string][] = messages.slice(-20).map((m) => [m.role, m.text]);
+      const response = await api.agentChat(msg, selectedTaskId ?? undefined, hist);
+      for (const tc of response.tool_calls) {
+        appLog.info(`[agent] ${tc.tool_name}(${Object.entries(tc.arguments).map(([k,v]) => `${k}=${JSON.stringify(v)}`).join(", ")}) → ${tc.result.substring(0, 150)}`);
+      }
+      await addMessage("assistant", response.text, response.tool_calls, true);
+      if (selectedProjectId) await load(selectedProjectId);
+      await loadDoing();
+
+      // Handle pending confirmations
+      if (response.pending_confirmations.length > 0) {
+        setPendingConfirmations(response.pending_confirmations);
+      }
     } catch (e) {
       const err = String(e);
+      appLog.error(`[agent] ${err}`);
       if (err.includes("API_KEY_NOT_SET")) {
         await addMessage("assistant", locale === "ru" ? "API-ключ не настроен. Перейдите в **Настройки** → **ИИ-ассистент**." : "API key not set. Go to **Settings** → **AI Assistant**.");
       } else {
         await addMessage("assistant", err);
       }
-    } finally {
-      setLoading(false);
-    }
-  };
-
-  const handleApply = async (msgIndex: number) => {
-    const msg = messages[msgIndex];
-    if (!msg?.actions?.length) return;
-    setLoading(true);
-
-    try {
-      // Map placeholder task_ids from create actions to real ids
-      const idMap: Record<string, string> = {};
-      for (const action of msg.actions) {
-        const resolveId = (id: string | null) =>
-          id ? idMap[id] || id : id;
-
-        switch (action.action) {
-          case "delete":
-            if (action.task_id) await remove(resolveId(action.task_id)!);
-            break;
-          case "update":
-            if (action.task_id && action.field)
-              await update(resolveId(action.task_id)!, { [action.field]: action.value });
-            break;
-          case "move":
-            if (action.task_id && action.value)
-              await moveTask(resolveId(action.task_id)!, action.value as api.TaskStatus);
-            break;
-          case "create":
-            if (action.value) {
-              const projectId = action.project_id || action.field || selectedProjectId || undefined;
-              const created = await api.createTask(action.value, projectId);
-              const extra: Record<string, string> = {};
-              if (action.priority) extra.priority = action.priority;
-              if (action.due) extra.due = action.due;
-              if (action.dod) extra.dod = action.dod;
-              if (action.time_estimate) extra.time_estimate = action.time_estimate;
-              if (action.promised_to) extra.promised_to = action.promised_to;
-              if (Object.keys(extra).length > 0) {
-                await update(created.id, extra);
-              }
-              if (action.task_id) idMap[action.task_id] = created.id;
-              idMap["new_task"] = created.id;
-              idMap["new"] = created.id;
-            }
-            break;
-          case "remember":
-          case "forget":
-            break;
-        }
-      }
-      await markExecuted(msg.id);
-      if (selectedProjectId) await load(selectedProjectId);
-      await loadDoing();
-      await refresh();
-    } catch (e) {
-      await addMessage("assistant", String(e));
     } finally {
       setLoading(false);
     }
@@ -152,8 +108,11 @@ export default function AgentPanel() {
     if (!userMsg || loading) return;
     setLoading(true);
     try {
-      const response = await api.agentChat(userMsg, selectedTaskId ?? undefined);
-      await addMessage("assistant", response.summary, response.actions, false);
+      const hist: [string, string][] = messages.slice(0, msgIndex).map((m) => [m.role, m.text]);
+      const response = await api.agentChat(userMsg, selectedTaskId ?? undefined, hist);
+      await addMessage("assistant", response.text, response.tool_calls, true);
+      if (selectedProjectId) await load(selectedProjectId);
+      await loadDoing();
     } catch (e) {
       await addMessage("assistant", String(e));
     } finally {
@@ -294,6 +253,21 @@ export default function AgentPanel() {
                 </Box>
                 <Box sx={{ flex: 1, minWidth: 0 }}>
                   <Box
+                    onClick={async (e) => {
+                      const link = (e.target as HTMLElement).closest("a");
+                      if (link) {
+                        e.preventDefault();
+                        const href = link.getAttribute("href");
+                        if (href) {
+                          try {
+                            const { open } = await import("@tauri-apps/plugin-shell");
+                            await open(href);
+                          } catch {
+                            window.open(href, "_blank");
+                          }
+                        }
+                      }
+                    }}
                     sx={{
                       fontSize: 13,
                       lineHeight: 1.5,
@@ -303,34 +277,27 @@ export default function AgentPanel() {
                       "& code": { bgcolor: "rgba(255,255,255,0.08)", px: 0.5, borderRadius: 0.5, fontSize: 12 },
                       "& pre": { bgcolor: "rgba(255,255,255,0.06)", p: 1, borderRadius: 1, overflow: "auto", mb: 0.5 },
                       "& strong": { fontWeight: 600 },
+                      "& a": { color: "#5ec4b0", textDecorationColor: "rgba(94,196,176,0.4)", cursor: "pointer" },
                     }}
                   >
                     <Markdown remarkPlugins={[remarkGfm]}>{msg.text}</Markdown>
                   </Box>
-                  {msg.actions && msg.actions.length > 0 && (
-                    <Box sx={{ mt: 0.5, display: "flex", flexDirection: "column", gap: 0.5 }}>
-                      {msg.actions.slice(0, 8).map((a, j) => (
-                        <Typography key={j} variant="body2" sx={{ fontSize: 12, py: 0.25, px: 1, bgcolor: "rgba(255,255,255,0.05)", borderRadius: 1 }}>
-                          {a.description || a.value || a.action}
-                        </Typography>
-                      ))}
-                      {msg.actions.length > 8 && (
-                        <Typography variant="caption" color="text.secondary">{t.andMore(msg.actions.length - 8)}</Typography>
-                      )}
-                      {!msg.executed && (
-                        <Box sx={{ mt: 0.5, display: "flex", gap: 1, alignItems: "center" }}>
-                          <Button size="small" variant="contained" onClick={() => handleApply(i)}>{t.apply}</Button>
-                          <Button size="small" onClick={() => markExecuted(msg.id)}>{t.cancel}</Button>
-                          <IconButton size="small" onClick={() => handleRegenerate(i)} title={locale === "ru" ? "Перегенерировать" : "Regenerate"}>
-                            <ReplayIcon sx={{ fontSize: 16 }} />
-                          </IconButton>
-                        </Box>
-                      )}
-                      {msg.executed && <Chip label={t.applied} size="small" color="success" sx={{ mt: 0.5 }} />}
-                    </Box>
+                  {msg.tool_calls && msg.tool_calls.length > 0 && (
+                    <details style={{ marginTop: 4 }}>
+                      <summary style={{ fontSize: 10, opacity: 0.4, cursor: "pointer" }}>
+                        {msg.tool_calls.length} tool{msg.tool_calls.length > 1 ? "s" : ""} used
+                      </summary>
+                      <Box sx={{ mt: 0.5, display: "flex", flexDirection: "column", gap: 0.25 }}>
+                        {msg.tool_calls.map((tc, j) => (
+                          <Typography key={j} sx={{ fontSize: 10, fontFamily: "monospace", opacity: 0.4 }}>
+                            {tc.tool_name}({Object.entries(tc.arguments).map(([k,v]) => `${k}=${JSON.stringify(v)}`).join(", ")})
+                          </Typography>
+                        ))}
+                      </Box>
+                    </details>
                   )}
-                  {msg.role === "assistant" && (!msg.actions || msg.actions.length === 0) && (
-                    <IconButton size="small" onClick={() => handleRegenerate(i)} sx={{ mt: 0.25, opacity: 0.4, "&:hover": { opacity: 1 } }} title={locale === "ru" ? "Перегенерировать" : "Regenerate"}>
+                  {msg.role === "assistant" && (
+                    <IconButton size="small" onClick={() => handleRegenerate(i)} sx={{ mt: 0.25, opacity: 0.3, "&:hover": { opacity: 0.7 } }} title={locale === "ru" ? "Перегенерировать" : "Regenerate"}>
                       <ReplayIcon sx={{ fontSize: 14 }} />
                     </IconButton>
                   )}
@@ -344,6 +311,58 @@ export default function AgentPanel() {
             )}
             <div ref={chatEndRef} />
           </Box>
+
+          {/* Confirmation bar */}
+          {pendingConfirmations.length > 0 && (
+            <Box sx={{ p: 1.5, borderTop: 1, borderColor: "divider", bgcolor: "rgba(255,200,0,0.05)" }}>
+              <Typography variant="caption" sx={{ fontWeight: 600, display: "block", mb: 0.5 }}>
+                {locale === "ru" ? "Подтвердите:" : "Confirm:"}
+              </Typography>
+              {pendingConfirmations.map((pc, i) => (
+                <Typography key={i} variant="body2" sx={{ fontSize: 12, mb: 0.25 }}>
+                  • {pc.description}
+                </Typography>
+              ))}
+              <Box sx={{ display: "flex", gap: 1, mt: 1 }}>
+                <Button
+                  size="small"
+                  variant="contained"
+                  color="warning"
+                  onClick={async () => {
+                    setLoading(true);
+                    try {
+                      const results = await api.agentConfirm(pendingConfirmations);
+                      for (const r of results) {
+                        appLog.info(`[agent] confirmed: ${r.tool_name} → ${r.result.substring(0, 100)}`);
+                      }
+                      const summary = results.map(r => `✓ ${r.tool_name}: ${r.result}`).join("\n");
+                      await addMessage("assistant", summary, results, true);
+                      if (selectedProjectId) await load(selectedProjectId);
+                      await loadDoing();
+                    } catch (e) {
+                      await addMessage("assistant", String(e));
+                    } finally {
+                      setPendingConfirmations([]);
+                      setLoading(false);
+                    }
+                  }}
+                  disabled={loading}
+                >
+                  {locale === "ru" ? "Да, выполнить" : "Yes, proceed"}
+                </Button>
+                <Button
+                  size="small"
+                  onClick={() => {
+                    setPendingConfirmations([]);
+                    addMessage("assistant", locale === "ru" ? "Отменено." : "Cancelled.");
+                  }}
+                  disabled={loading}
+                >
+                  {locale === "ru" ? "Отмена" : "Cancel"}
+                </Button>
+              </Box>
+            </Box>
+          )}
 
           {/* Input */}
           <Box sx={{ p: 1, borderTop: 1, borderColor: "divider" }}>

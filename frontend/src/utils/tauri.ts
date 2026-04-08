@@ -22,6 +22,7 @@ export interface Task {
   project_id: string | null;
   status: TaskStatus;
   priority: string | null;
+  energy: string | null;
   due: string | null;
   estimate: string | null;
   time_estimate: string | null;
@@ -32,7 +33,9 @@ export interface Task {
   return_ref: string | null;
   promised_to: string | null;
   comment: string | null;
+  tracker_url: string | null;
   position: number | null;
+  completed_at: string | null;
   created_at: string;
   updated_at: string;
 }
@@ -144,28 +147,26 @@ export const setSetting = (key: string, value: string) =>
 
 // ---- Agent commands ----
 
-export interface AgentAction {
-  action: string;
-  task_id: string | null;
-  field: string | null;
-  value: string | null;
+export interface ToolCallLog {
+  tool_name: string;
+  arguments: Record<string, unknown>;
+  result: string;
+}
+
+export interface PendingToolCall {
+  tool_name: string;
+  arguments: Record<string, unknown>;
   description: string;
-  project_id?: string;
-  priority?: string;
-  due?: string;
-  status?: string;
-  dod?: string;
-  time_estimate?: string;
-  promised_to?: string;
 }
-
 export interface AgentResponse {
-  summary: string;
-  actions: AgentAction[];
+  text: string;
+  tool_calls: ToolCallLog[];
+  pending_confirmations: PendingToolCall[];
+  continuation: string | null;
 }
 
-export const agentChat = (message: string, focusedTaskId?: string) =>
-  invoke<AgentResponse>("agent_chat", { message, focusedTaskId });
+export const agentChat = (message: string, focusedTaskId?: string, history?: [string, string][]) =>
+  invoke<AgentResponse>("agent_chat", { message, focusedTaskId, history });
 
 // ---- Chat session commands ----
 
@@ -180,7 +181,7 @@ export interface ChatMessageRecord {
   session_id: string;
   role: "user" | "assistant";
   text: string;
-  actions: AgentAction[] | null;
+  tool_calls: ToolCallLog[] | null;
   executed: boolean;
   created_at: string;
 }
@@ -239,3 +240,8 @@ export interface AiFillResult {
 
 export const aiFillTask = (taskId: string) =>
   invoke<AiFillResult>("ai_fill_task", { taskId });
+
+export const getBackendLogs = () => invoke<string[]>("get_backend_logs");
+
+export const agentConfirm = (toolCalls: PendingToolCall[]) =>
+  invoke<ToolCallLog[]>("agent_confirm", { toolCalls });

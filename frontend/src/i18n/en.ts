@@ -30,6 +30,9 @@ const en = {
   priorityMedium: "Medium",
   priorityLow: "Low",
 
+  // Energy
+  energy: "Energy",
+
   // Estimates
   estimateS: "S",
   estimateM: "M",
@@ -38,6 +41,7 @@ const en = {
   timeEstimatePlaceholder: "e.g. 2h, 3d",
   promisedTo: "Promised to",
   comment: "Comment",
+  trackerUrl: "Tracker link",
 
   // Quick Add
   addTaskPlaceholder: "Add task... (⌘N)",

@@ -28,6 +28,7 @@ pub struct Task {
     pub project_id: Option<String>,
     pub status: String,
     pub priority: Option<String>,
+    pub energy: Option<String>,
     pub due: Option<String>,
     pub estimate: Option<String>,
     pub time_estimate: Option<String>,
@@ -38,7 +39,9 @@ pub struct Task {
     pub return_ref: Option<String>,
     pub promised_to: Option<String>,
     pub comment: Option<String>,
+    pub tracker_url: Option<String>,
     pub position: Option<i32>,
+    pub completed_at: Option<String>,
     pub created_at: String,
     pub updated_at: String,
 }
@@ -56,6 +59,7 @@ pub struct UpdateTaskInput {
     pub project_id: Option<String>,
     pub status: Option<String>,
     pub priority: Option<String>,
+    pub energy: Option<String>,
     pub due: Option<String>,
     pub estimate: Option<String>,
     pub time_estimate: Option<String>,
@@ -66,6 +70,7 @@ pub struct UpdateTaskInput {
     pub return_ref: Option<String>,
     pub promised_to: Option<String>,
     pub comment: Option<String>,
+    pub tracker_url: Option<String>,
 }
 
 #[derive(Debug, Serialize, Deserialize)]

@@ -48,12 +48,13 @@ export function useAiAutocomplete(taskId: string | null, triggerChar = "/") {
       if (value.endsWith(triggerChar) && taskId) {
         abortRef.current = false;
         setState({ suggestion: null, loading: true, fieldName });
+        const t0 = Date.now();
         appLog.info(`Autocomplete triggered for "${fieldName}" (task=${taskId})`);
 
         aiAutocomplete(taskId, fieldName, value)
           .then((result) => {
             if (!abortRef.current) {
-              appLog.info(`Autocomplete result for "${fieldName}" (${result.length} chars): "${result}"`);
+              appLog.info(`Autocomplete result for "${fieldName}" in ${((Date.now()-t0)/1000).toFixed(1)}s (${result.length} chars): "${result}"`);
               if (result && result.trim().length > 0) {
                 setState({ suggestion: result.trim(), loading: false, fieldName });
               } else {
@@ -63,7 +64,7 @@ export function useAiAutocomplete(taskId: string | null, triggerChar = "/") {
             }
           })
           .catch((err) => {
-            appLog.error(`Autocomplete failed for "${fieldName}": ${String(err)}`);
+            appLog.error(`Autocomplete failed for "${fieldName}" after ${((Date.now()-t0)/1000).toFixed(1)}s: ${String(err)}`);
             if (!abortRef.current) {
               setState({ suggestion: null, loading: false, fieldName: null });
             }

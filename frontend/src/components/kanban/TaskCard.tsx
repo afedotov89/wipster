@@ -68,13 +68,15 @@ export default function TaskCard({ task, onMove }: Props) {
       style={style}
       {...attributes}
       {...listeners}
-      elevation={isDragging ? 4 : 1}
+      elevation={0}
       sx={{
         cursor: "grab",
         "&:hover": { bgcolor: "action.hover" },
-        borderLeft: task.priority
-          ? `3px solid ${PRIORITY_COLORS[task.priority as Priority] || "#95a5a6"}`
-          : "3px solid transparent",
+        boxShadow: [
+          isDragging ? "0 4px 8px rgba(0,0,0,0.3)" : "0 1px 3px rgba(0,0,0,0.2)",
+          task.priority ? `inset 3px 0 0 ${PRIORITY_COLORS[task.priority as Priority] || "#95a5a6"}` : null,
+          task.energy ? `inset -3px 0 0 ${{ low: "#5b7fa6", medium: "#6da87a", high: "#d4a843" }[task.energy]}` : null,
+        ].filter(Boolean).join(", "),
         mb: 1,
         display: "flex",
         flexDirection: "column",
@@ -82,7 +84,6 @@ export default function TaskCard({ task, onMove }: Props) {
         ...(isSelected && {
           outline: "2px solid",
           outlineColor: "primary.main",
-          outlineOffset: -2,
         }),
       }}
       onClick={(e) => {
@@ -137,6 +138,29 @@ export default function TaskCard({ task, onMove }: Props) {
                   variant="outlined"
                   color={color as "error" | "warning" | "info" | "default"}
                   sx={{ height: 20, fontSize: 10 }}
+                />
+              );
+            })()}
+            {task.tracker_url && (() => {
+              const url = task.tracker_url;
+              // Extract last path component: "QUEUE-123" from "https://tracker.yandex.ru/QUEUE-123"
+              const key = url.replace(/\/+$/, "").split("/").pop() || url;
+              return (
+                <Chip
+                  label={key}
+                  size="small"
+                  variant="outlined"
+                  sx={{ height: 20, fontSize: 10, cursor: "pointer", color: "rgb(78,129,238)", borderColor: "rgb(78,129,238)" }}
+                  onClick={async (e) => {
+                    e.stopPropagation();
+                    const href = url.startsWith("http") ? url : `https://${url}`;
+                    try {
+                      const { open } = await import("@tauri-apps/plugin-shell");
+                      await open(href);
+                    } catch {
+                      window.open(href, "_blank");
+                    }
+                  }}
                 />
               );
             })()}

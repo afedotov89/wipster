@@ -30,6 +30,9 @@ const ru = {
   priorityMedium: "Средний",
   priorityLow: "Низкий",
 
+  // Energy
+  energy: "Энергия",
+
   // Estimates
   estimateS: "Малая",
   estimateM: "Средняя",
@@ -38,6 +41,7 @@ const ru = {
   timeEstimatePlaceholder: "напр. 2ч, 3д",
   promisedTo: "Кому обещано",
   comment: "Комментарий",
+  trackerUrl: "Ссылка на трекер",
 
   // Quick Add
   addTaskPlaceholder: "Добавить задачу... (⌘N)",

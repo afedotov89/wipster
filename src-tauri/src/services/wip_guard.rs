@@ -12,8 +12,8 @@ pub struct WipCheckResult {
 pub fn check_wip(conn: &Connection, exclude_task_id: Option<&str>) -> WipCheckResult {
     let mut stmt = conn
         .prepare(
-            "SELECT id, title, project_id, status, priority, due, estimate, time_estimate, tags, \
-             dod, checklist, next_step, return_ref, promised_to, comment, position, created_at, updated_at \
+            "SELECT id, title, project_id, status, priority, energy, due, estimate, time_estimate, tags, \
+             dod, checklist, next_step, return_ref, promised_to, comment, tracker_url, position, completed_at, created_at, updated_at \
              FROM tasks WHERE status = 'doing'",
         )
         .expect("Failed to prepare WIP check query");
@@ -26,18 +26,20 @@ pub fn check_wip(conn: &Connection, exclude_task_id: Option<&str>) -> WipCheckRe
                 project_id: row.get(2)?,
                 status: row.get(3)?,
                 priority: row.get(4)?,
-                due: row.get(5)?,
-                estimate: row.get(6)?,
-                time_estimate: row.get(7)?,
-                tags: row.get(8)?,
-                dod: row.get(9)?,
-                checklist: row.get(10)?,
-                next_step: row.get(11)?,
-                return_ref: row.get(12)?,
-                promised_to: row.get(13)?,
-                comment: row.get(14)?, position: row.get(15)?,
-                created_at: row.get(16)?,
-                updated_at: row.get(17)?,
+                energy: row.get(5)?,
+                due: row.get(6)?,
+                estimate: row.get(7)?,
+                time_estimate: row.get(8)?,
+                tags: row.get(9)?,
+                dod: row.get(10)?,
+                checklist: row.get(11)?,
+                next_step: row.get(12)?,
+                return_ref: row.get(13)?,
+                promised_to: row.get(14)?,
+                comment: row.get(15)?, tracker_url: row.get(16)?, position: row.get(17)?,
+                completed_at: row.get(18)?,
+                created_at: row.get(19)?,
+                updated_at: row.get(20)?,
             })
         })
         .expect("Failed to query doing tasks")

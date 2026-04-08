@@ -37,6 +37,7 @@ import { useHistoryStore } from "@/stores/historyStore";
 import { statusLabel, priorityLabel, PRIORITIES } from "@/utils/constants";
 import { useI18n } from "@/i18n";
 import { useAiAutocomplete } from "@/hooks/useAiAutocomplete";
+import { appLog } from "@/stores/logStore";
 import { getPromisedToOptions, getEstimateOptions, aiFillTask } from "@/utils/tauri";
 import type { TaskStatus } from "@/utils/tauri";
 
@@ -260,6 +261,7 @@ export default function TaskDetailPanel() {
   const [timeEstimate, setTimeEstimate] = useState("");
   const [promisedTo, setPromisedTo] = useState("");
   const [comment, setComment] = useState("");
+  const [trackerUrl, setTrackerUrl] = useState("");
   const [promisedToOptions, setPromisedToOptions] = useState<string[]>([]);
   const [estimateOptions, setEstimateOptions] = useState<string[]>([]);
   const [checklist, setChecklist] = useState<ChecklistItem[]>([]);
@@ -269,8 +271,10 @@ export default function TaskDetailPanel() {
   const handleAiFill = async () => {
     if (!selectedTaskId || aiFilling) return;
     setAiFilling(true);
+    appLog.info(`[ai-fill] Starting for task ${selectedTaskId}`);
     try {
       const result = await aiFillTask(selectedTaskId);
+      appLog.info(`[ai-fill] Result: ${JSON.stringify(result).substring(0, 200)}`);
       const updates: Record<string, string> = {};
       if (result.time_estimate) { updates.time_estimate = result.time_estimate; setTimeEstimate(result.time_estimate); }
       if (result.dod) { updates.dod = result.dod; setDod(result.dod); }
@@ -288,9 +292,12 @@ export default function TaskDetailPanel() {
       if (Object.keys(updates).length > 0) {
         await update(selectedTaskId, updates);
         await refresh();
+        appLog.info(`[ai-fill] Updated fields: ${Object.keys(updates).join(", ")}`);
+      } else {
+        appLog.warn("[ai-fill] No fields to update (all returned null or already filled)");
       }
     } catch (e) {
-      console.error("AI fill failed:", e);
+      appLog.error(`[ai-fill] Failed: ${String(e)}`);
     } finally {
       setAiFilling(false);
     }
@@ -313,6 +320,7 @@ export default function TaskDetailPanel() {
       setTimeEstimate(task.time_estimate ?? "");
       setPromisedTo(task.promised_to ?? "");
       setComment(task.comment ?? "");
+      setTrackerUrl(task.tracker_url ?? "");
       let items: ChecklistItem[] = [];
       try { items = JSON.parse(task.checklist || "[]"); } catch { /* */ }
       // Migrate legacy next_step into checklist
@@ -379,7 +387,7 @@ export default function TaskDetailPanel() {
           label={statusLabel(t, task.status as TaskStatus)}
           size="small"
           variant="outlined"
-          color={task.status === "doing" ? "warning" : "default"}
+          color={task.status === "doing" ? "warning" : task.status === "done" ? "success" : "default"}
         />
         <Box>
           <IconButton
@@ -446,6 +454,35 @@ export default function TaskDetailPanel() {
         </ToggleButtonGroup>
       </Box>
 
+      <Box>
+        <Typography variant="caption" color="text.secondary">
+          {t.energy}
+        </Typography>
+        <Box sx={{ display: "flex", alignItems: "center", gap: 0.75, mt: 0.5 }}>
+          <Typography sx={{ fontSize: 14, lineHeight: 1 }}>😴</Typography>
+          <Box sx={{ display: "flex", flex: 1, height: 24, borderRadius: 1, overflow: "hidden", cursor: "pointer" }}>
+            {(["low", "medium", "high"] as const).map((level, i) => {
+              const colors = ["#5b7fa6", "#6da87a", "#d4a843"];
+              const selected = task.energy === level;
+              return (
+                <Box
+                  key={level}
+                  onClick={() => save("energy", task.energy === level ? null : level)}
+                  sx={{
+                    flex: 1,
+                    bgcolor: colors[i],
+                    opacity: selected ? 1 : task.energy ? 0.2 : 0.4,
+                    transition: "opacity 0.15s",
+                    "&:hover": { opacity: selected ? 1 : 0.6 },
+                  }}
+                />
+              );
+            })}
+          </Box>
+          <Typography sx={{ fontSize: 14, lineHeight: 1 }}>⚡</Typography>
+        </Box>
+      </Box>
+
       <Autocomplete
         freeSolo
         size="small"
@@ -470,17 +507,60 @@ export default function TaskDetailPanel() {
         )}
       />
 
-      <TextField
-        fullWidth
-        size="small"
-        label={t.dueDate}
-        type="date"
-        value={due}
-        onChange={(e) => setDue(e.target.value)}
-        onBlur={() => save("due", due)}
-        InputLabelProps={{ shrink: true }}
-        sx={{ "& .MuiInputBase-input": { fontSize: 13 } }}
-      />
+      <Box>
+        <Typography variant="caption" color="text.secondary" sx={{ mb: 0.5, display: "block" }}>
+          {t.dueDate}
+        </Typography>
+        <Box sx={{ display: "flex", gap: 0.5, flexWrap: "wrap", alignItems: "center" }}>
+          {[
+            { label: locale === "ru" ? "Сегодня" : "Today", days: 0 },
+            { label: locale === "ru" ? "Завтра" : "Tomorrow", days: 1 },
+            { label: locale === "ru" ? "+3д" : "+3d", days: 3 },
+            { label: locale === "ru" ? "+1н" : "+1w", days: 7 },
+          ].map(({ label, days }) => {
+            const d = new Date();
+            d.setDate(d.getDate() + days);
+            const val = d.toISOString().slice(0, 10);
+            return (
+              <Typography
+                key={days}
+                onClick={() => { setDue(val); save("due", val); }}
+                sx={{
+                  fontSize: 11, px: 1, py: 0.4, borderRadius: 1, cursor: "pointer",
+                  bgcolor: due === val ? "primary.main" : "rgba(255,255,255,0.06)",
+                  color: due === val ? "white" : "text.secondary",
+                  "&:hover": { bgcolor: due === val ? "primary.main" : "rgba(255,255,255,0.12)" },
+                }}
+              >
+                {label}
+              </Typography>
+            );
+          })}
+          <Box component="label" sx={{
+            fontSize: 11, px: 1, py: 0.4, borderRadius: 1, cursor: "pointer",
+            bgcolor: due && ![0,1,3,7].some(days => { const d = new Date(); d.setDate(d.getDate() + days); return d.toISOString().slice(0,10) === due; }) ? "primary.main" : "rgba(255,255,255,0.06)",
+            color: due && ![0,1,3,7].some(days => { const d = new Date(); d.setDate(d.getDate() + days); return d.toISOString().slice(0,10) === due; }) ? "white" : "text.secondary",
+            "&:hover": { bgcolor: "rgba(255,255,255,0.12)" },
+            position: "relative",
+          }}>
+            {due && ![0,1,3,7].some(days => { const d = new Date(); d.setDate(d.getDate() + days); return d.toISOString().slice(0,10) === due; }) ? due : "📅"}
+            <input
+              type="date"
+              value={due}
+              onChange={(e) => { setDue(e.target.value); save("due", e.target.value); }}
+              style={{ position: "absolute", opacity: 0, width: 0, height: 0, overflow: "hidden" }}
+            />
+          </Box>
+          {due && (
+            <Typography
+              onClick={() => { setDue(""); save("due", ""); }}
+              sx={{ fontSize: 11, px: 0.5, cursor: "pointer", color: "text.secondary", opacity: 0.4, "&:hover": { opacity: 1 } }}
+            >
+              ✕
+            </Typography>
+          )}
+        </Box>
+      </Box>
 
       <Autocomplete
         freeSolo
@@ -588,6 +668,33 @@ export default function TaskDetailPanel() {
       </Box>
 
       <Divider />
+
+      <Box sx={{ display: "flex", gap: 0.5, alignItems: "center" }}>
+        <TextField
+          fullWidth
+          size="small"
+          label={t.trackerUrl}
+          placeholder="https://tracker.yandex.ru/QUEUE-123"
+          value={trackerUrl}
+          onChange={(e) => setTrackerUrl(e.target.value)}
+          onBlur={() => save("tracker_url", trackerUrl || null)}
+          sx={{ "& .MuiInputBase-input": { fontSize: 13 } }}
+          InputLabelProps={{ sx: { fontSize: 13 } }}
+        />
+        {trackerUrl && (
+          <IconButton size="small" onClick={async () => {
+            const url = trackerUrl.startsWith("http") ? trackerUrl : `https://${trackerUrl}`;
+            try {
+              const { open } = await import("@tauri-apps/plugin-shell");
+              await open(url);
+            } catch {
+              window.open(url, "_blank");
+            }
+          }} sx={{ flexShrink: 0, opacity: 0.5 }}>
+            <span style={{ fontSize: 14 }}>↗</span>
+          </IconButton>
+        )}
+      </Box>
 
       <TextField
         fullWidth

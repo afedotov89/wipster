@@ -36,16 +36,16 @@ pub async fn ai_fill_task(
             .unwrap_or_else(|_| default_model.to_string());
 
         let task: Task = conn.query_row(
-            "SELECT id, title, project_id, status, priority, due, estimate, time_estimate, tags, \
-             dod, checklist, next_step, return_ref, promised_to, comment, position, created_at, updated_at FROM tasks WHERE id = ?1",
+            "SELECT id, title, project_id, status, priority, energy, due, estimate, time_estimate, tags, \
+             dod, checklist, next_step, return_ref, promised_to, comment, tracker_url, position, completed_at, created_at, updated_at FROM tasks WHERE id = ?1",
             [&task_id],
             |row| Ok(Task {
                 id: row.get(0)?, title: row.get(1)?, project_id: row.get(2)?,
-                status: row.get(3)?, priority: row.get(4)?, due: row.get(5)?,
-                estimate: row.get(6)?, time_estimate: row.get(7)?, tags: row.get(8)?, dod: row.get(9)?,
-                checklist: row.get(10)?, next_step: row.get(11)?, return_ref: row.get(12)?,
-                promised_to: row.get(13)?, comment: row.get(14)?, position: row.get(15)?,
-                created_at: row.get(16)?, updated_at: row.get(17)?,
+                status: row.get(3)?, priority: row.get(4)?, energy: row.get(5)?, due: row.get(6)?,
+                estimate: row.get(7)?, time_estimate: row.get(8)?, tags: row.get(9)?, dod: row.get(10)?,
+                checklist: row.get(11)?, next_step: row.get(12)?, return_ref: row.get(13)?,
+                promised_to: row.get(14)?, comment: row.get(15)?, tracker_url: row.get(16)?, position: row.get(17)?,
+                completed_at: row.get(18)?, created_at: row.get(19)?, updated_at: row.get(20)?,
             }),
         ).map_err(|e| format!("Task not found: {}", e))?;
 
@@ -77,20 +77,20 @@ Empty fields to fill: {fields}
 
 Respond with ONLY valid JSON, no markdown:
 {{
-  "time_estimate": "estimated time like 30м, 1ч, 2ч, 4ч, 1д, 3д (or null if unsure)",
-  "dod": "1-2 concrete acceptance criteria (or null if unsure)",
-  "priority": "p0|p1|p2|p3 (or null if unsure)",
+  "time_estimate": "e.g. 30м, 1ч, 2ч, 4ч, 1д (or null)",
+  "dod": "one short criterion, max 15 words (or null)",
+  "priority": "p0|p1|p2|p3 (or null)",
   "promised_to": null,
-  "checklist": "[{{\"text\":\"step 1\",\"done\":false}}, ...] as JSON string (or null if unsure)"
+  "checklist": "[{{\"text\":\"step\",\"done\":false}}, ...] max 3-4 short steps (or null)"
 }}
 
 Rules:
+- BE BRIEF. Every value must be as short as possible
 - Only fill fields listed in empty_fields, set others to null
-- For promised_to: ALWAYS null unless there's overwhelming evidence
-- For time_estimate: infer from task title/complexity and similar completed tasks
-- For priority: infer from urgency, due date, and similar tasks
-- For dod: write specific criteria for THIS task
-- For checklist: 3-5 concrete actionable steps for THIS task
+- promised_to: ALWAYS null
+- dod: one sentence, max 15 words
+- checklist: max 4 steps, each max 8 words
+- time_estimate: use same units as examples (ч, д, м)
 - Use the same language as the task title"#,
             task_ctx = task_ctx,
             examples = examples,
@@ -148,8 +148,27 @@ Rules:
         &text
     };
 
-    let result: AiFillResult = serde_json::from_str(cleaned)
+    let raw: serde_json::Value = serde_json::from_str(cleaned)
         .map_err(|e| format!("Parse error: {}. Raw: {}", e, text))?;
+
+    // Handle checklist: LLM may return it as array or string
+    let checklist = match &raw["checklist"] {
+        serde_json::Value::Array(arr) => {
+            if arr.is_empty() { None } else { Some(serde_json::to_string(arr).unwrap_or_default()) }
+        }
+        serde_json::Value::String(s) => {
+            if s.is_empty() || s == "null" { None } else { Some(s.clone()) }
+        }
+        _ => None,
+    };
+
+    let result = AiFillResult {
+        time_estimate: raw["time_estimate"].as_str().filter(|s| !s.is_empty()).map(|s| s.to_string()),
+        dod: raw["dod"].as_str().filter(|s| !s.is_empty()).map(|s| s.to_string()),
+        priority: raw["priority"].as_str().filter(|s| !s.is_empty()).map(|s| s.to_string()),
+        promised_to: raw["promised_to"].as_str().filter(|s| !s.is_empty()).map(|s| s.to_string()),
+        checklist,
+    };
 
     Ok(result)
 }

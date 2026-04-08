@@ -14,8 +14,8 @@ pub fn list_tasks(
     let conn = db.0.lock().map_err(|e| e.to_string())?;
 
     let mut sql = String::from(
-        "SELECT id, title, project_id, status, priority, due, estimate, time_estimate, tags, \
-         dod, checklist, next_step, return_ref, promised_to, comment, position, created_at, updated_at FROM tasks WHERE 1=1",
+        "SELECT id, title, project_id, status, priority, energy, due, estimate, time_estimate, tags, \
+         dod, checklist, next_step, return_ref, promised_to, comment, tracker_url, position, completed_at, created_at, updated_at FROM tasks WHERE 1=1",
     );
     let mut params: Vec<Box<dyn rusqlite::types::ToSql>> = Vec::new();
 
@@ -29,9 +29,11 @@ pub fn list_tasks(
     }
 
     sql.push_str(" ORDER BY \
-        COALESCE(position, 999999) ASC, \
         CASE priority WHEN 'p0' THEN 0 WHEN 'p1' THEN 1 WHEN 'p2' THEN 2 WHEN 'p3' THEN 3 ELSE 4 END ASC, \
-        created_at DESC");
+        CASE WHEN due IS NULL THEN 1 ELSE 0 END ASC, due ASC, \
+        CASE energy WHEN 'high' THEN 0 WHEN 'medium' THEN 1 WHEN 'low' THEN 2 ELSE 3 END ASC, \
+        COALESCE(position, 999999) ASC, \
+        created_at ASC");
 
     let mut stmt = conn.prepare(&sql).map_err(|e| e.to_string())?;
     let param_refs: Vec<&dyn rusqlite::types::ToSql> = params.iter().map(|p| p.as_ref()).collect();
@@ -44,18 +46,20 @@ pub fn list_tasks(
                 project_id: row.get(2)?,
                 status: row.get(3)?,
                 priority: row.get(4)?,
-                due: row.get(5)?,
-                estimate: row.get(6)?,
-                time_estimate: row.get(7)?,
-                tags: row.get(8)?,
-                dod: row.get(9)?,
-                checklist: row.get(10)?,
-                next_step: row.get(11)?,
-                return_ref: row.get(12)?,
-                promised_to: row.get(13)?,
-                comment: row.get(14)?, position: row.get(15)?,
-                created_at: row.get(16)?,
-                updated_at: row.get(17)?,
+                energy: row.get(5)?,
+                due: row.get(6)?,
+                estimate: row.get(7)?,
+                time_estimate: row.get(8)?,
+                tags: row.get(9)?,
+                dod: row.get(10)?,
+                checklist: row.get(11)?,
+                next_step: row.get(12)?,
+                return_ref: row.get(13)?,
+                promised_to: row.get(14)?,
+                comment: row.get(15)?, tracker_url: row.get(16)?, position: row.get(17)?,
+                completed_at: row.get(18)?,
+                created_at: row.get(19)?,
+                updated_at: row.get(20)?,
             })
         })
         .map_err(|e| e.to_string())?
@@ -132,6 +136,7 @@ pub fn update_task(
     add_field!(project_id, "project_id");
     add_field!(status, "status");
     add_field!(priority, "priority");
+    add_field!(energy, "energy");
     add_field!(due, "due");
     add_field!(estimate, "estimate");
     add_field!(time_estimate, "time_estimate");
@@ -142,6 +147,7 @@ pub fn update_task(
     add_field!(return_ref, "return_ref");
     add_field!(promised_to, "promised_to");
     add_field!(comment, "comment");
+    add_field!(tracker_url, "tracker_url");
 
     if updates.is_empty() {
         return Ok(old);
@@ -153,6 +159,15 @@ pub fn update_task(
             if !wip.allowed {
                 return Err("WIP_LIMIT_REACHED".to_string());
             }
+        }
+    }
+
+    // Set completed_at when moving to done, clear when leaving done
+    if let Some(ref new_status) = input.status {
+        if new_status == "done" && old.status != "done" {
+            updates.push("completed_at = datetime('now')".to_string());
+        } else if new_status != "done" && old.status == "done" {
+            updates.push("completed_at = NULL".to_string());
         }
     }
 
@@ -256,10 +271,12 @@ pub fn move_task(db: State<'_, DbState>, input: MoveTaskInput) -> Result<MoveTas
         }
     }
 
-    conn.execute(
-        "UPDATE tasks SET status = ?1, updated_at = datetime('now') WHERE id = ?2",
-        rusqlite::params![input.new_status, input.task_id],
-    )
+    let move_sql = if input.new_status == "done" {
+        "UPDATE tasks SET status = ?1, completed_at = datetime('now'), updated_at = datetime('now') WHERE id = ?2"
+    } else {
+        "UPDATE tasks SET status = ?1, completed_at = NULL, updated_at = datetime('now') WHERE id = ?2"
+    };
+    conn.execute(move_sql, rusqlite::params![input.new_status, input.task_id])
     .map_err(|e| e.to_string())?;
 
     let updated = get_task_by_id(&conn, &input.task_id)?;
@@ -377,8 +394,8 @@ pub fn get_doing_tasks(db: State<'_, DbState>) -> Result<Vec<Task>, String> {
 
 fn get_task_by_id(conn: &rusqlite::Connection, id: &str) -> Result<Task, String> {
     conn.query_row(
-        "SELECT id, title, project_id, status, priority, due, estimate, time_estimate, tags, \
-         dod, checklist, next_step, return_ref, promised_to, comment, position, created_at, updated_at \
+        "SELECT id, title, project_id, status, priority, energy, due, estimate, time_estimate, tags, \
+         dod, checklist, next_step, return_ref, promised_to, comment, tracker_url, position, completed_at, created_at, updated_at \
          FROM tasks WHERE id = ?1",
         [id],
         |row| {
@@ -388,18 +405,20 @@ fn get_task_by_id(conn: &rusqlite::Connection, id: &str) -> Result<Task, String>
                 project_id: row.get(2)?,
                 status: row.get(3)?,
                 priority: row.get(4)?,
-                due: row.get(5)?,
-                estimate: row.get(6)?,
-                time_estimate: row.get(7)?,
-                tags: row.get(8)?,
-                dod: row.get(9)?,
-                checklist: row.get(10)?,
-                next_step: row.get(11)?,
-                return_ref: row.get(12)?,
-                promised_to: row.get(13)?,
-                comment: row.get(14)?, position: row.get(15)?,
-                created_at: row.get(16)?,
-                updated_at: row.get(17)?,
+                energy: row.get(5)?,
+                due: row.get(6)?,
+                estimate: row.get(7)?,
+                time_estimate: row.get(8)?,
+                tags: row.get(9)?,
+                dod: row.get(10)?,
+                checklist: row.get(11)?,
+                next_step: row.get(12)?,
+                return_ref: row.get(13)?,
+                promised_to: row.get(14)?,
+                comment: row.get(15)?, tracker_url: row.get(16)?, position: row.get(17)?,
+                completed_at: row.get(18)?,
+                created_at: row.get(19)?,
+                updated_at: row.get(20)?,
             })
         },
     )

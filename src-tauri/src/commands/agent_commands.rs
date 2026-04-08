@@ -1,9 +1,15 @@
 use tauri::State;
 
 use crate::db::connection::DbState;
+use crate::services::logger;
 use crate::models::project::Project;
 use crate::models::task::Task;
 use crate::services::agent::{self, AgentResponse};
+
+#[tauri::command]
+pub fn get_backend_logs() -> Vec<String> {
+    logger::drain()
+}
 
 #[tauri::command]
 pub fn get_setting(db: State<'_, DbState>, key: String) -> Result<Option<String>, String> {
@@ -44,8 +50,9 @@ pub async fn agent_chat(
     db: State<'_, DbState>,
     message: String,
     focused_task_id: Option<String>,
+    history: Option<Vec<(String, String)>>,
 ) -> Result<AgentResponse, String> {
-    eprintln!("[agent_chat] received message: {}, focused_task: {:?}", message, focused_task_id);
+    crate::services::logger::log("info", &format!("[agent_chat] received message: {}, focused_task: {:?}", message, focused_task_id));
     let (provider, api_key, model, tasks, projects, memory, focused_task_context) = {
         let conn = db.0.lock().map_err(|e| e.to_string())?;
 
@@ -65,8 +72,8 @@ pub async fn agent_chat(
 
         let mut stmt = conn
             .prepare(
-                "SELECT id, title, project_id, status, priority, due, estimate, time_estimate, tags, \
-                 dod, checklist, next_step, return_ref, promised_to, comment, position, created_at, updated_at FROM tasks",
+                "SELECT id, title, project_id, status, priority, energy, due, estimate, time_estimate, tags, \
+                 dod, checklist, next_step, return_ref, promised_to, comment, tracker_url, position, completed_at, created_at, updated_at FROM tasks",
             )
             .map_err(|e| e.to_string())?;
 
@@ -78,18 +85,20 @@ pub async fn agent_chat(
                     project_id: row.get(2)?,
                     status: row.get(3)?,
                     priority: row.get(4)?,
-                    due: row.get(5)?,
-                    estimate: row.get(6)?,
-                    time_estimate: row.get(7)?,
-                    tags: row.get(8)?,
-                    dod: row.get(9)?,
-                    checklist: row.get(10)?,
-                    next_step: row.get(11)?,
-                    return_ref: row.get(12)?,
-                    promised_to: row.get(13)?,
-                    comment: row.get(14)?, position: row.get(15)?,
-                    created_at: row.get(16)?,
-                    updated_at: row.get(17)?,
+                    energy: row.get(5)?,
+                    due: row.get(6)?,
+                    estimate: row.get(7)?,
+                    time_estimate: row.get(8)?,
+                    tags: row.get(9)?,
+                    dod: row.get(10)?,
+                    checklist: row.get(11)?,
+                    next_step: row.get(12)?,
+                    return_ref: row.get(13)?,
+                    promised_to: row.get(14)?,
+                    comment: row.get(15)?, tracker_url: row.get(16)?, position: row.get(17)?,
+                    completed_at: row.get(18)?,
+                    created_at: row.get(19)?,
+                    updated_at: row.get(18)?,
                 })
             })
             .map_err(|e| e.to_string())?
@@ -133,72 +142,33 @@ pub async fn agent_chat(
         (provider, api_key, model, tasks, projects, memory, focused_task_context)
     };
 
-    eprintln!("[agent_chat] calling LLM: provider={}, model={}, tasks={}, projects={}", provider, model, tasks.len(), projects.len());
-    let result = agent::chat(&provider, &api_key, &model, &message, &tasks, &projects, &memory, &focused_task_context).await;
-    eprintln!("[agent_chat] LLM result: {:?}", result.as_ref().map(|r| &r.summary));
-    let result = result?;
+    let hist = history.unwrap_or_default();
+    let result = agent::chat(
+        &provider, &api_key, &model, &message, &hist,
+        &tasks, &projects, &memory, &focused_task_context,
+        &db.0,
+    ).await?;
 
-    // Process memory actions on backend
-    {
-        let conn = db.0.lock().map_err(|e| e.to_string())?;
-        let mut current_memory = get_setting_value(&conn, "agent_memory").unwrap_or_default();
-        let mut changed = false;
-        for action in &result.actions {
-            match action.action.as_str() {
-                "remember" => {
-                    if let Some(ref val) = action.value {
-                        if !current_memory.is_empty() {
-                            current_memory.push('\n');
-                        }
-                        current_memory.push_str(val);
-                        changed = true;
-                    }
-                }
-                "forget" => {
-                    if let Some(ref val) = action.value {
-                        current_memory = current_memory.lines()
-                            .filter(|line| !line.contains(val.as_str()))
-                            .collect::<Vec<_>>()
-                            .join("\n");
-                        changed = true;
-                    }
-                }
-                _ => {}
-            }
-        }
-        if changed {
-            conn.execute(
-                "INSERT OR REPLACE INTO settings (key, value) VALUES ('agent_memory', ?1)",
-                [&current_memory],
-            ).map_err(|e| e.to_string())?;
-        }
+    crate::services::logger::log("info", &format!("[agent_chat] done: {} tool calls, {} pending, text len: {}",
+        result.tool_calls.len(), result.pending_confirmations.len(), result.text.len()));
+    Ok(result)
+}
+
+/// Execute confirmed dangerous tools
+#[tauri::command]
+pub async fn agent_confirm(
+    db: State<'_, DbState>,
+    tool_calls: Vec<agent::PendingToolCall>,
+) -> Result<Vec<agent::ToolCallLog>, String> {
+    let mut results = Vec::new();
+    for tc in &tool_calls {
+        let result = agent::execute_confirmed_tool(&tc.tool_name, &tc.arguments, &db.0).await;
+        crate::services::logger::log("info", &format!("[agent] confirmed tool {} -> {}", tc.tool_name, &result[..result.len().min(200)]));
+        results.push(agent::ToolCallLog {
+            tool_name: tc.tool_name.clone(),
+            arguments: tc.arguments.clone(),
+            result,
+        });
     }
-
-    // Enrich actions with task titles and filter out memory actions
-    let filtered = AgentResponse {
-        summary: result.summary.clone(),
-        actions: result.actions.iter()
-            .filter(|a| a.action != "remember" && a.action != "forget")
-            .map(|a| {
-                let mut enriched = a.clone();
-                // Auto-generate description if missing
-                if enriched.description.as_ref().map_or(true, |d| d.is_empty()) {
-                    let task_title = a.task_id.as_ref().and_then(|tid| {
-                        tasks.iter().find(|t| &t.id == tid).map(|t| t.title.clone())
-                    });
-                    enriched.description = Some(match a.action.as_str() {
-                        "create" => format!("+ {}", a.value.as_deref().unwrap_or("")),
-                        "delete" => format!("✕ {}", task_title.unwrap_or_default()),
-                        "move" => format!("{} → {}", task_title.unwrap_or_default(), a.value.as_deref().unwrap_or("")),
-                        "update" => format!("{}: {} = {}", task_title.unwrap_or_default(), a.field.as_deref().unwrap_or(""), a.value.as_deref().unwrap_or("")),
-                        _ => a.value.clone().unwrap_or_default(),
-                    });
-                }
-                enriched
-            })
-            .collect(),
-    };
-
-    eprintln!("[agent_chat] returning {} actions to frontend", filtered.actions.len());
-    Ok(filtered)
+    Ok(results)
 }

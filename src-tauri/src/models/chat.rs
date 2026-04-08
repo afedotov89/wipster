@@ -1,6 +1,6 @@
 use serde::{Deserialize, Serialize};
 
-use crate::services::agent::AgentAction;
+use crate::services::agent::ToolCallLog;
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct ChatSession {
@@ -15,7 +15,7 @@ pub struct ChatMessage {
     pub session_id: String,
     pub role: String,
     pub text: String,
-    pub actions: Option<Vec<AgentAction>>,
+    pub tool_calls: Option<Vec<ToolCallLog>>,
     pub executed: bool,
     pub created_at: String,
 }

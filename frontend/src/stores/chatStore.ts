@@ -1,6 +1,6 @@
 import { create } from "zustand";
 import * as api from "@/utils/tauri";
-import type { ChatSession, ChatMessageRecord, AgentAction } from "@/utils/tauri";
+import type { ChatSession, ChatMessageRecord, ToolCallLog } from "@/utils/tauri";
 
 interface ChatState {
   sessions: ChatSession[];
@@ -12,7 +12,7 @@ interface ChatState {
   addMessage: (
     role: "user" | "assistant",
     text: string,
-    actions?: AgentAction[],
+    toolCalls?: ToolCallLog[],
     executed?: boolean,
   ) => Promise<ChatMessageRecord>;
   markExecuted: (messageId: string) => Promise<void>;
@@ -44,16 +44,15 @@ export const useChatStore = create<ChatState>((set, get) => ({
     set({ currentSessionId: id, messages });
   },
 
-  addMessage: async (role, text, actions, executed = false) => {
+  addMessage: async (role, text, toolCalls, executed = false) => {
     let sessionId = get().currentSessionId;
     if (!sessionId) {
       sessionId = await get().newSession();
     }
-    const actionsJson = actions ? JSON.stringify(actions) : null;
+    const actionsJson = toolCalls ? JSON.stringify(toolCalls) : null;
     const msg = await api.addChatMessage(sessionId, role, text, actionsJson, executed);
     set((s) => {
       const updated = [...s.messages, msg];
-      // Update session title from first user message
       if (role === "user" && s.messages.length === 0) {
         const title = text.slice(0, 80);
         return {

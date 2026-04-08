@@ -131,6 +131,66 @@ pub async fn fetch_issue(token: &str, org_id: &str, issue_key: &str) -> Result<T
     })
 }
 
+pub async fn create_issue(
+    token: &str,
+    org_id: &str,
+    queue: &str,
+    summary: &str,
+    description: Option<&str>,
+    priority: Option<&str>,
+) -> Result<TrackerIssue, String> {
+    let client = Client::new();
+    let url = format!("{}/issues", API_BASE);
+
+    let mut body = serde_json::json!({
+        "queue": queue,
+        "summary": summary,
+    });
+
+    if let Some(desc) = description {
+        body["description"] = Value::String(desc.to_string());
+    }
+    if let Some(prio) = priority {
+        // Yandex Tracker priorities: 1=blocker, 2=critical, 3=normal, 4=minor, 5=trivial
+        let prio_id = match prio {
+            "p0" | "critical" | "blocker" => "2",
+            "p1" | "high" => "2",
+            "p2" | "normal" | "medium" => "3",
+            "p3" | "low" => "4",
+            other => other,
+        };
+        body["priority"] = Value::String(prio_id.to_string());
+    }
+
+    let resp = client
+        .post(&url)
+        .header("Authorization", format!("OAuth {}", token))
+        .header("X-Org-Id", org_id)
+        .header("Content-Type", "application/json")
+        .timeout(std::time::Duration::from_secs(15))
+        .json(&body)
+        .send()
+        .await
+        .map_err(|e| format!("Tracker API error: {}", e))?;
+
+    if !resp.status().is_success() {
+        let status = resp.status();
+        let err_body = resp.text().await.unwrap_or_default();
+        return Err(format!("Tracker API HTTP {}: {}", status, err_body));
+    }
+
+    let json: Value = resp.json().await.map_err(|e| format!("Tracker parse error: {}", e))?;
+
+    Ok(TrackerIssue {
+        key: json["key"].as_str().unwrap_or("").to_string(),
+        summary: json["summary"].as_str().unwrap_or("").to_string(),
+        status: get_nested(&json, &["status", "display"]).unwrap_or("").to_string(),
+        assignee: get_nested(&json, &["assignee", "display"]).unwrap_or("unassigned").to_string(),
+        priority: get_nested(&json, &["priority", "display"]).unwrap_or("").to_string(),
+        description: json["description"].as_str().unwrap_or("").to_string(),
+    })
+}
+
 /// Fetch all tracker issues referenced in task fields and return context string
 pub async fn enrich_context(
     token: &str,
