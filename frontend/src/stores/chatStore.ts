@@ -1,6 +1,9 @@
 import { create } from "zustand";
 import * as api from "@/utils/tauri";
-import type { ChatSession, ChatMessageRecord, ToolCallLog } from "@/utils/tauri";
+import type {
+  ChatSession, ChatMessageRecord, ToolCallLog,
+  PendingToolCall, ConfirmationStatus,
+} from "@/utils/tauri";
 
 interface ChatState {
   sessions: ChatSession[];
@@ -14,8 +17,11 @@ interface ChatState {
     text: string,
     toolCalls?: ToolCallLog[],
     executed?: boolean,
+    pendingConfirmations?: PendingToolCall[],
+    confirmationStatus?: ConfirmationStatus | null,
   ) => Promise<ChatMessageRecord>;
   markExecuted: (messageId: string) => Promise<void>;
+  setConfirmationStatus: (messageId: string, status: ConfirmationStatus) => Promise<void>;
   deleteSession: (id: string) => Promise<void>;
 }
 
@@ -44,13 +50,17 @@ export const useChatStore = create<ChatState>((set, get) => ({
     set({ currentSessionId: id, messages });
   },
 
-  addMessage: async (role, text, toolCalls, executed = false) => {
+  addMessage: async (role, text, toolCalls, executed = false, pendingConfirmations, confirmationStatus = null) => {
     let sessionId = get().currentSessionId;
     if (!sessionId) {
       sessionId = await get().newSession();
     }
     const actionsJson = toolCalls ? JSON.stringify(toolCalls) : null;
-    const msg = await api.addChatMessage(sessionId, role, text, actionsJson, executed);
+    const pendingJson = pendingConfirmations && pendingConfirmations.length > 0
+      ? JSON.stringify(pendingConfirmations)
+      : null;
+    const status = pendingJson ? (confirmationStatus ?? "pending") : confirmationStatus;
+    const msg = await api.addChatMessage(sessionId, role, text, actionsJson, executed, pendingJson, status);
     set((s) => {
       const updated = [...s.messages, msg];
       if (role === "user" && s.messages.length === 0) {
@@ -72,6 +82,15 @@ export const useChatStore = create<ChatState>((set, get) => ({
     set((s) => ({
       messages: s.messages.map((m) =>
         m.id === messageId ? { ...m, executed: true } : m
+      ),
+    }));
+  },
+
+  setConfirmationStatus: async (messageId, status) => {
+    await api.updateChatConfirmation(messageId, status);
+    set((s) => ({
+      messages: s.messages.map((m) =>
+        m.id === messageId ? { ...m, confirmation_status: status } : m
       ),
     }));
   },

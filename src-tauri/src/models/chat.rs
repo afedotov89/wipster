@@ -1,6 +1,6 @@
 use serde::{Deserialize, Serialize};
 
-use crate::services::agent::ToolCallLog;
+use crate::services::agent::{PendingToolCall, ToolCallLog};
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct ChatSession {
@@ -17,5 +17,8 @@ pub struct ChatMessage {
     pub text: String,
     pub tool_calls: Option<Vec<ToolCallLog>>,
     pub executed: bool,
+    pub pending_confirmations: Option<Vec<PendingToolCall>>,
+    /// One of: "pending", "confirmed", "cancelled". None when no confirmation needed.
+    pub confirmation_status: Option<String>,
     pub created_at: String,
 }

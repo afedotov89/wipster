@@ -4,9 +4,6 @@ use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};
 use std::sync::Mutex;
 
-use crate::models::project::Project;
-use crate::models::task::Task;
-
 // ---- Public types ----
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -115,6 +112,22 @@ fn tool_definitions() -> Vec<Value> {
                     "status": { "type": "string", "enum": ["inbox","queue","doing","done"] },
                 },
             }
+        }),
+        json!({
+            "name": "list_tasks",
+            "description": "List tasks, optionally filtered by project and/or status. Use when user asks 'what tasks do I have', 'show my tasks', 'what's in progress', etc.",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "project_id": { "type": "string", "description": "Filter by project" },
+                    "status": { "type": "string", "enum": ["inbox","queue","doing","done"], "description": "Filter by status" },
+                },
+            }
+        }),
+        json!({
+            "name": "list_projects",
+            "description": "List all projects with their IDs and names",
+            "parameters": { "type": "object", "properties": {} }
         }),
         json!({
             "name": "get_task",
@@ -317,6 +330,59 @@ fn execute_tool_sync(conn: &Connection, tool_name: &str, args: &Value) -> Result
                 Ok(tasks.join("\n"))
             }
         }
+        "list_tasks" => {
+            let project_id = args["project_id"].as_str();
+            let status = args["status"].as_str();
+
+            let mut sql = "SELECT t.id, t.title, t.status, t.priority, t.due, t.time_estimate, \
+                           COALESCE(p.name, '') FROM tasks t \
+                           LEFT JOIN projects p ON t.project_id = p.id WHERE 1=1".to_string();
+            let mut params: Vec<Box<dyn rusqlite::types::ToSql>> = Vec::new();
+
+            if let Some(pid) = project_id {
+                sql.push_str(" AND t.project_id = ?");
+                params.push(Box::new(pid.to_string()));
+            }
+            if let Some(s) = status {
+                sql.push_str(" AND t.status = ?");
+                params.push(Box::new(s.to_string()));
+            }
+            sql.push_str(" ORDER BY t.status, t.position ASC");
+
+            let mut stmt = conn.prepare(&sql).map_err(|e| e.to_string())?;
+            let param_refs: Vec<&dyn rusqlite::types::ToSql> = params.iter().map(|p| p.as_ref()).collect();
+
+            let rows: Vec<String> = stmt.query_map(param_refs.as_slice(), |row| {
+                Ok(format!("- {} | {} [{}] proj={} prio={} due={} est={}",
+                    row.get::<_, String>(0)?,
+                    row.get::<_, String>(1)?,
+                    row.get::<_, String>(2)?,
+                    row.get::<_, String>(6)?,
+                    row.get::<_, Option<String>>(3)?.unwrap_or_default(),
+                    row.get::<_, Option<String>>(4)?.unwrap_or_default(),
+                    row.get::<_, Option<String>>(5)?.unwrap_or_default(),
+                ))
+            }).map_err(|e| e.to_string())?.filter_map(|r| r.ok()).collect();
+
+            if rows.is_empty() {
+                Ok("No tasks".to_string())
+            } else {
+                Ok(format!("{} task(s):\n{}", rows.len(), rows.join("\n")))
+            }
+        }
+        "list_projects" => {
+            let mut stmt = conn.prepare(
+                "SELECT id, name FROM projects ORDER BY \"order\" ASC"
+            ).map_err(|e| e.to_string())?;
+            let rows: Vec<String> = stmt.query_map([], |row| {
+                Ok(format!("- {} | {}", row.get::<_, String>(0)?, row.get::<_, String>(1)?))
+            }).map_err(|e| e.to_string())?.filter_map(|r| r.ok()).collect();
+            if rows.is_empty() {
+                Ok("No projects".to_string())
+            } else {
+                Ok(rows.join("\n"))
+            }
+        }
         "get_task" => {
             let task_id = args["task_id"].as_str().ok_or("missing task_id")?;
             let task_json = conn.query_row(
@@ -419,19 +485,7 @@ async fn execute_tool_async(tool_name: &str, args: &Value, db: &Mutex<Connection
 
 // ---- System prompt ----
 
-fn build_system_prompt(tasks: &[Task], projects: &[Project], memory: &str) -> String {
-    let tasks_summary: Vec<Value> = tasks.iter().map(|t| {
-        json!({
-            "id": t.id, "title": t.title, "status": t.status,
-            "priority": t.priority, "due": t.due,
-            "project_id": t.project_id,
-        })
-    }).collect();
-
-    let projects_json: Vec<Value> = projects.iter().map(|p| {
-        json!({"id": p.id, "name": p.name})
-    }).collect();
-
+fn build_system_prompt(memory: &str) -> String {
     let memory_section = if memory.is_empty() {
         String::new()
     } else {
@@ -443,19 +497,14 @@ fn build_system_prompt(tasks: &[Task], projects: &[Project], memory: &str) -> St
 
 Use tools to fulfill user requests. Call multiple tools if needed. After completing actions, summarize what you did.
 {memory}
-Projects: {projects}
-
-Current tasks: {tasks}
-
 Rules:
 - Use the same language as the user
+- Use list_projects to see available projects; use list_tasks to see tasks (filter by project_id/status as needed)
+- Use search_tasks to find a specific task by name
 - When user mentions a tracker link, use read_tracker_issue to get details
 - When creating tasks, fill in as many fields as you can infer
-- Use search_tasks to find tasks when the user refers to them by name
 - Use remember to save personal info the user shares"#,
         memory = memory_section,
-        projects = serde_json::to_string(&projects_json).unwrap_or_default(),
-        tasks = serde_json::to_string(&tasks_summary).unwrap_or_default(),
     )
 }
 
@@ -612,19 +661,27 @@ pub async fn chat(
     model: &str,
     user_message: &str,
     history: &[(String, String)],
-    tasks: &[Task],
-    projects: &[Project],
     memory: &str,
     focused_task_context: &str,
     db: &Mutex<Connection>,
 ) -> Result<AgentResponse, String> {
-    let mut system = build_system_prompt(tasks, projects, memory);
-    if !focused_task_context.is_empty() {
-        system.push_str(&format!(
-            "\n\nCurrently focused task:\n{}\nWhen user says \"this task\" or \"эта задача\", they mean the focused task.",
-            focused_task_context
-        ));
-    }
+    let base_prompt = build_system_prompt(memory);
+    let system = if focused_task_context.is_empty() {
+        base_prompt
+    } else {
+        format!(
+            "{focus}\n\n{base}",
+            focus = format!(
+                "=== CURRENTLY OPEN TASK (user has it open in the UI right now) ===\n\
+                 {ctx}\n\
+                 When the user says \"this task\", \"эта задача\", \"текущая задача\", \"открытая задача\", \
+                 \"задача в приложении\", or refers to the task without naming it — they mean THE TASK ABOVE. \
+                 Use its id directly. Do NOT call search_tasks or list_tasks to find it.",
+                ctx = focused_task_context
+            ),
+            base = base_prompt,
+        )
+    };
 
     let tool_defs = tool_definitions();
     let client = Client::builder()
@@ -749,10 +806,7 @@ pub async fn chat(
             }
 
             return Ok(AgentResponse {
-                text: text.unwrap_or_else(|| {
-                    let descs: Vec<String> = pending.iter().map(|p| format!("• {}", p.description)).collect();
-                    format!("Требуется подтверждение:\n{}", descs.join("\n"))
-                }),
+                text: text.unwrap_or_default(),
                 tool_calls: all_tool_calls,
                 pending_confirmations: pending,
                 continuation: Some(serde_json::to_string(&messages).unwrap_or_default()),

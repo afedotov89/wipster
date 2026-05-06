@@ -176,6 +176,8 @@ export interface ChatSession {
   created_at: string;
 }
 
+export type ConfirmationStatus = "pending" | "confirmed" | "cancelled";
+
 export interface ChatMessageRecord {
   id: string;
   session_id: string;
@@ -183,6 +185,8 @@ export interface ChatMessageRecord {
   text: string;
   tool_calls: ToolCallLog[] | null;
   executed: boolean;
+  pending_confirmations: PendingToolCall[] | null;
+  confirmation_status: ConfirmationStatus | null;
   created_at: string;
 }
 
@@ -201,10 +205,18 @@ export const addChatMessage = (
   text: string,
   actionsJson: string | null,
   executed: boolean,
-) => invoke<ChatMessageRecord>("add_chat_message", { sessionId, role, text, actionsJson, executed });
+  pendingConfirmationsJson: string | null = null,
+  confirmationStatus: ConfirmationStatus | null = null,
+) => invoke<ChatMessageRecord>("add_chat_message", {
+  sessionId, role, text, actionsJson, executed,
+  pendingConfirmationsJson, confirmationStatus,
+});
 
 export const updateChatMessage = (id: string, executed: boolean) =>
   invoke<void>("update_chat_message", { id, executed });
+
+export const updateChatConfirmation = (id: string, status: ConfirmationStatus) =>
+  invoke<void>("update_chat_confirmation", { id, status });
 
 export const deleteChatSession = (sessionId: string) =>
   invoke<void>("delete_chat_session", { sessionId });

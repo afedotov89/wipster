@@ -3,7 +3,7 @@ use uuid::Uuid;
 
 use crate::db::connection::DbState;
 use crate::models::chat::{ChatMessage, ChatSession};
-use crate::services::agent::ToolCallLog;
+use crate::services::agent::{PendingToolCall, ToolCallLog};
 
 #[tauri::command]
 pub fn create_chat_session(db: State<'_, DbState>) -> Result<ChatSession, String> {
@@ -60,7 +60,8 @@ pub fn get_chat_messages(
     let conn = db.0.lock().map_err(|e| e.to_string())?;
     let mut stmt = conn
         .prepare(
-            "SELECT id, session_id, role, text, actions_json, executed, created_at \
+            "SELECT id, session_id, role, text, actions_json, executed, \
+                    pending_confirmations_json, confirmation_status, created_at \
              FROM chat_messages WHERE session_id = ?1 ORDER BY created_at ASC",
         )
         .map_err(|e| e.to_string())?;
@@ -71,6 +72,10 @@ pub fn get_chat_messages(
             let actions: Option<Vec<ToolCallLog>> = actions_json
                 .and_then(|j| serde_json::from_str(&j).ok());
             let executed: i32 = row.get(5)?;
+            let pending_json: Option<String> = row.get(6)?;
+            let pending: Option<Vec<PendingToolCall>> = pending_json
+                .and_then(|j| serde_json::from_str(&j).ok());
+            let confirmation_status: Option<String> = row.get(7)?;
 
             Ok(ChatMessage {
                 id: row.get(0)?,
@@ -79,7 +84,9 @@ pub fn get_chat_messages(
                 text: row.get(3)?,
                 tool_calls: actions,
                 executed: executed != 0,
-                created_at: row.get(6)?,
+                pending_confirmations: pending,
+                confirmation_status,
+                created_at: row.get(8)?,
             })
         })
         .map_err(|e| e.to_string())?
@@ -97,14 +104,18 @@ pub fn add_chat_message(
     text: String,
     actions_json: Option<String>,
     executed: bool,
+    pending_confirmations_json: Option<String>,
+    confirmation_status: Option<String>,
 ) -> Result<ChatMessage, String> {
     let conn = db.0.lock().map_err(|e| e.to_string())?;
     let id = Uuid::new_v4().to_string();
 
     conn.execute(
-        "INSERT INTO chat_messages (id, session_id, role, text, actions_json, executed) \
-         VALUES (?1, ?2, ?3, ?4, ?5, ?6)",
-        rusqlite::params![id, session_id, role, text, actions_json, executed as i32],
+        "INSERT INTO chat_messages (id, session_id, role, text, actions_json, executed, \
+                                    pending_confirmations_json, confirmation_status) \
+         VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8)",
+        rusqlite::params![id, session_id, role, text, actions_json, executed as i32,
+                          pending_confirmations_json, confirmation_status],
     )
     .map_err(|e| e.to_string())?;
 
@@ -120,9 +131,11 @@ pub fn add_chat_message(
 
     let actions: Option<Vec<ToolCallLog>> = actions_json
         .and_then(|j| serde_json::from_str(&j).ok());
+    let pending: Option<Vec<PendingToolCall>> = pending_confirmations_json
+        .and_then(|j| serde_json::from_str(&j).ok());
 
     conn.query_row(
-        "SELECT id, session_id, role, text, executed, created_at \
+        "SELECT id, session_id, role, text, executed, confirmation_status, created_at \
          FROM chat_messages WHERE id = ?1",
         [&id],
         |row| {
@@ -134,7 +147,9 @@ pub fn add_chat_message(
                 text: row.get(3)?,
                 tool_calls: actions,
                 executed: exec != 0,
-                created_at: row.get(5)?,
+                pending_confirmations: pending,
+                confirmation_status: row.get(5)?,
+                created_at: row.get(6)?,
             })
         },
     )
@@ -151,6 +166,21 @@ pub fn update_chat_message(
     conn.execute(
         "UPDATE chat_messages SET executed = ?1 WHERE id = ?2",
         rusqlite::params![executed as i32, id],
+    )
+    .map_err(|e| e.to_string())?;
+    Ok(())
+}
+
+#[tauri::command]
+pub fn update_chat_confirmation(
+    db: State<'_, DbState>,
+    id: String,
+    status: String,
+) -> Result<(), String> {
+    let conn = db.0.lock().map_err(|e| e.to_string())?;
+    conn.execute(
+        "UPDATE chat_messages SET confirmation_status = ?1 WHERE id = ?2",
+        rusqlite::params![status, id],
     )
     .map_err(|e| e.to_string())?;
     Ok(())

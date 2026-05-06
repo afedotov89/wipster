@@ -20,6 +20,9 @@ import AddIcon from "@mui/icons-material/Add";
 import DeleteOutlineIcon from "@mui/icons-material/DeleteOutline";
 import ArrowBackIcon from "@mui/icons-material/ArrowBack";
 import CloseIcon from "@mui/icons-material/Close";
+import CheckIcon from "@mui/icons-material/Check";
+import BlockIcon from "@mui/icons-material/Block";
+import WarningAmberIcon from "@mui/icons-material/WarningAmber";
 import Markdown from "react-markdown";
 import remarkGfm from "remark-gfm";
 import { useTaskStore } from "@/stores/taskStore";
@@ -34,7 +37,6 @@ export default function AgentPanel() {
   const [input, setInput] = useState("");
   const [visible, setVisible] = useState(false);
   const [loading, setLoading] = useState(false);
-  const [pendingConfirmations, setPendingConfirmations] = useState<api.PendingToolCall[]>([]);
   const [showHistory, setShowHistory] = useState(false);
   const inputRef = useRef<HTMLInputElement>(null);
   const chatEndRef = useRef<HTMLDivElement>(null);
@@ -45,7 +47,7 @@ export default function AgentPanel() {
   const {
     sessions, currentSessionId, messages,
     loadSessions, newSession, openSession,
-    addMessage, deleteSession,
+    addMessage, deleteSession, setConfirmationStatus,
   } = useChatStore();
 
   const [initialized, setInitialized] = useState(false);
@@ -75,14 +77,15 @@ export default function AgentPanel() {
       for (const tc of response.tool_calls) {
         appLog.info(`[agent] ${tc.tool_name}(${Object.entries(tc.arguments).map(([k,v]) => `${k}=${JSON.stringify(v)}`).join(", ")}) → ${tc.result.substring(0, 150)}`);
       }
-      await addMessage("assistant", response.text, response.tool_calls, true);
+      await addMessage(
+        "assistant",
+        response.text,
+        response.tool_calls,
+        true,
+        response.pending_confirmations,
+      );
       if (selectedProjectId) await load(selectedProjectId);
       await loadDoing();
-
-      // Handle pending confirmations
-      if (response.pending_confirmations.length > 0) {
-        setPendingConfirmations(response.pending_confirmations);
-      }
     } catch (e) {
       const err = String(e);
       appLog.error(`[agent] ${err}`);
@@ -126,6 +129,50 @@ export default function AgentPanel() {
     setTimeout(() => inputRef.current?.focus(), 100);
   };
 
+  const handleConfirm = async (msg: api.ChatMessageRecord) => {
+    if (!msg.pending_confirmations || loading) return;
+    setLoading(true);
+    try {
+      const results = await api.agentConfirm(msg.pending_confirmations);
+      for (const r of results) {
+        appLog.info(`[agent] confirmed: ${r.tool_name} → ${r.result.substring(0, 100)}`);
+      }
+      await setConfirmationStatus(msg.id, "confirmed");
+      const summary = results.map((r) => `✓ ${r.tool_name}: ${r.result}`).join("\n");
+      await addMessage("assistant", summary, results, true);
+      if (selectedProjectId) await load(selectedProjectId);
+      await loadDoing();
+    } catch (e) {
+      await addMessage("assistant", String(e));
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const handleCancelConfirmation = async (msg: api.ChatMessageRecord) => {
+    if (loading) return;
+    await setConfirmationStatus(msg.id, "cancelled");
+    await addMessage("assistant", locale === "ru" ? "Отменено." : "Cancelled.");
+  };
+
+  const formatPendingArgs = (args: Record<string, unknown>): [string, string][] => {
+    const labels: Record<string, { ru: string; en: string }> = {
+      queue: { ru: "Очередь", en: "Queue" },
+      summary: { ru: "Заголовок", en: "Title" },
+      description: { ru: "Описание", en: "Description" },
+      priority: { ru: "Приоритет", en: "Priority" },
+      task_id: { ru: "ID задачи", en: "Task ID" },
+    };
+    return Object.entries(args)
+      .filter(([, v]) => v !== null && v !== undefined && v !== "")
+      .map(([k, v]) => {
+        const lbl = labels[k];
+        const label = lbl ? lbl[locale === "ru" ? "ru" : "en"] : k;
+        const value = typeof v === "string" ? v : JSON.stringify(v);
+        return [label, value];
+      });
+  };
+
   if (!visible) {
     return (
       <IconButton
@@ -141,8 +188,15 @@ export default function AgentPanel() {
   }
 
   return (
+    <>
+    {/* Invisible backdrop to close on outside click */}
+    <Box
+      onClick={() => setVisible(false)}
+      sx={{ position: "fixed", inset: 0, zIndex: 1299 }}
+    />
     <Paper
       elevation={8}
+      onClick={(e) => e.stopPropagation()}
       sx={{
         position: "fixed",
         bottom: 16,
@@ -280,8 +334,87 @@ export default function AgentPanel() {
                       "& a": { color: "#5ec4b0", textDecorationColor: "rgba(94,196,176,0.4)", cursor: "pointer" },
                     }}
                   >
-                    <Markdown remarkPlugins={[remarkGfm]}>{msg.text}</Markdown>
+                    {msg.text && <Markdown remarkPlugins={[remarkGfm]}>{msg.text}</Markdown>}
                   </Box>
+                  {msg.pending_confirmations && msg.pending_confirmations.length > 0 && (
+                    <Box
+                      sx={{
+                        mt: msg.text ? 1 : 0,
+                        p: 1.25,
+                        borderRadius: 1,
+                        border: 1,
+                        borderColor: msg.confirmation_status === "confirmed"
+                          ? "rgba(94,196,176,0.3)"
+                          : msg.confirmation_status === "cancelled"
+                            ? "rgba(255,255,255,0.08)"
+                            : "rgba(255,180,0,0.35)",
+                        bgcolor: msg.confirmation_status === "confirmed"
+                          ? "rgba(94,196,176,0.06)"
+                          : msg.confirmation_status === "cancelled"
+                            ? "rgba(255,255,255,0.02)"
+                            : "rgba(255,180,0,0.06)",
+                      }}
+                    >
+                      <Box sx={{ display: "flex", alignItems: "center", gap: 0.5, mb: 0.75 }}>
+                        {msg.confirmation_status === "confirmed" ? (
+                          <CheckIcon sx={{ fontSize: 14, color: "#5ec4b0" }} />
+                        ) : msg.confirmation_status === "cancelled" ? (
+                          <BlockIcon sx={{ fontSize: 14, opacity: 0.5 }} />
+                        ) : (
+                          <WarningAmberIcon sx={{ fontSize: 14, color: "#f5b041" }} />
+                        )}
+                        <Typography variant="caption" sx={{ fontWeight: 600, fontSize: 11 }}>
+                          {msg.confirmation_status === "confirmed"
+                            ? (locale === "ru" ? "Выполнено" : "Confirmed")
+                            : msg.confirmation_status === "cancelled"
+                              ? (locale === "ru" ? "Отменено" : "Cancelled")
+                              : (locale === "ru" ? "Требуется подтверждение" : "Confirmation required")}
+                        </Typography>
+                      </Box>
+                      {msg.pending_confirmations.map((pc, k) => (
+                        <Box key={k} sx={{ mb: k < msg.pending_confirmations!.length - 1 ? 1 : 0 }}>
+                          <Typography sx={{ fontSize: 12, fontWeight: 500, mb: 0.25 }}>
+                            {pc.description}
+                          </Typography>
+                          <Box sx={{ pl: 0.5 }}>
+                            {formatPendingArgs(pc.arguments).map(([label, value], j) => (
+                              <Box key={j} sx={{ display: "flex", gap: 0.5, fontSize: 11, lineHeight: 1.4 }}>
+                                <Typography sx={{ fontSize: 11, opacity: 0.5, minWidth: 64, flexShrink: 0 }}>
+                                  {label}:
+                                </Typography>
+                                <Typography sx={{ fontSize: 11, opacity: 0.85, wordBreak: "break-word" }}>
+                                  {value}
+                                </Typography>
+                              </Box>
+                            ))}
+                          </Box>
+                        </Box>
+                      ))}
+                      {msg.confirmation_status === "pending" && (
+                        <Box sx={{ display: "flex", gap: 0.75, mt: 1 }}>
+                          <Button
+                            size="small"
+                            variant="contained"
+                            color="warning"
+                            onClick={() => handleConfirm(msg)}
+                            disabled={loading}
+                            sx={{ fontSize: 11, py: 0.25, px: 1, minWidth: 0 }}
+                          >
+                            {locale === "ru" ? "Подтвердить" : "Confirm"}
+                          </Button>
+                          <Button
+                            size="small"
+                            variant="outlined"
+                            onClick={() => handleCancelConfirmation(msg)}
+                            disabled={loading}
+                            sx={{ fontSize: 11, py: 0.25, px: 1, minWidth: 0 }}
+                          >
+                            {locale === "ru" ? "Отмена" : "Cancel"}
+                          </Button>
+                        </Box>
+                      )}
+                    </Box>
+                  )}
                   {msg.tool_calls && msg.tool_calls.length > 0 && (
                     <details style={{ marginTop: 4 }}>
                       <summary style={{ fontSize: 10, opacity: 0.4, cursor: "pointer" }}>
@@ -312,58 +445,6 @@ export default function AgentPanel() {
             <div ref={chatEndRef} />
           </Box>
 
-          {/* Confirmation bar */}
-          {pendingConfirmations.length > 0 && (
-            <Box sx={{ p: 1.5, borderTop: 1, borderColor: "divider", bgcolor: "rgba(255,200,0,0.05)" }}>
-              <Typography variant="caption" sx={{ fontWeight: 600, display: "block", mb: 0.5 }}>
-                {locale === "ru" ? "Подтвердите:" : "Confirm:"}
-              </Typography>
-              {pendingConfirmations.map((pc, i) => (
-                <Typography key={i} variant="body2" sx={{ fontSize: 12, mb: 0.25 }}>
-                  • {pc.description}
-                </Typography>
-              ))}
-              <Box sx={{ display: "flex", gap: 1, mt: 1 }}>
-                <Button
-                  size="small"
-                  variant="contained"
-                  color="warning"
-                  onClick={async () => {
-                    setLoading(true);
-                    try {
-                      const results = await api.agentConfirm(pendingConfirmations);
-                      for (const r of results) {
-                        appLog.info(`[agent] confirmed: ${r.tool_name} → ${r.result.substring(0, 100)}`);
-                      }
-                      const summary = results.map(r => `✓ ${r.tool_name}: ${r.result}`).join("\n");
-                      await addMessage("assistant", summary, results, true);
-                      if (selectedProjectId) await load(selectedProjectId);
-                      await loadDoing();
-                    } catch (e) {
-                      await addMessage("assistant", String(e));
-                    } finally {
-                      setPendingConfirmations([]);
-                      setLoading(false);
-                    }
-                  }}
-                  disabled={loading}
-                >
-                  {locale === "ru" ? "Да, выполнить" : "Yes, proceed"}
-                </Button>
-                <Button
-                  size="small"
-                  onClick={() => {
-                    setPendingConfirmations([]);
-                    addMessage("assistant", locale === "ru" ? "Отменено." : "Cancelled.");
-                  }}
-                  disabled={loading}
-                >
-                  {locale === "ru" ? "Отмена" : "Cancel"}
-                </Button>
-              </Box>
-            </Box>
-          )}
-
           {/* Input */}
           <Box sx={{ p: 1, borderTop: 1, borderColor: "divider" }}>
             <TextField
@@ -392,5 +473,6 @@ export default function AgentPanel() {
         </>
       )}
     </Paper>
+    </>
   );
 }

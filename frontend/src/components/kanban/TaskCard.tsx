@@ -69,6 +69,7 @@ export default function TaskCard({ task, onMove }: Props) {
       {...attributes}
       {...listeners}
       elevation={0}
+      data-task-card
       sx={{
         cursor: "grab",
         "&:hover": { bgcolor: "action.hover" },
