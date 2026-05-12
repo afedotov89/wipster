@@ -73,6 +73,10 @@ const en = {
   contextSaved: "Context saved",
   noTasksInProgress: "No tasks in progress. Start a task from a project.",
 
+  // Settings - Appearance
+  themeSection: "Theme",
+  themeSectionHint: "Pick a mood for your work session",
+
   // Settings - AI
   aiConnector: "AI Assistant",
   provider: "Provider",

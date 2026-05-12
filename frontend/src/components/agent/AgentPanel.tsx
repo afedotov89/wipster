@@ -328,10 +328,10 @@ export default function AgentPanel() {
                       "& p": { m: 0, mb: 0.5 },
                       "& ul, & ol": { m: 0, pl: 2, mb: 0.5 },
                       "& li": { mb: 0.25 },
-                      "& code": { bgcolor: "rgba(255,255,255,0.08)", px: 0.5, borderRadius: 0.5, fontSize: 12 },
-                      "& pre": { bgcolor: "rgba(255,255,255,0.06)", p: 1, borderRadius: 1, overflow: "auto", mb: 0.5 },
+                      "& code": { bgcolor: "var(--overlay-2)", px: 0.5, borderRadius: 0.5, fontSize: 12 },
+                      "& pre": { bgcolor: "var(--overlay-2)", p: 1, borderRadius: 1, overflow: "auto", mb: 0.5 },
                       "& strong": { fontWeight: 600 },
-                      "& a": { color: "#5ec4b0", textDecorationColor: "rgba(94,196,176,0.4)", cursor: "pointer" },
+                      "& a": { color: "primary.main", textDecoration: "underline", textDecorationStyle: "dotted", cursor: "pointer" },
                     }}
                   >
                     {msg.text && <Markdown remarkPlugins={[remarkGfm]}>{msg.text}</Markdown>}
@@ -344,15 +344,15 @@ export default function AgentPanel() {
                         borderRadius: 1,
                         border: 1,
                         borderColor: msg.confirmation_status === "confirmed"
-                          ? "rgba(94,196,176,0.3)"
+                          ? "success.main"
                           : msg.confirmation_status === "cancelled"
-                            ? "rgba(255,255,255,0.08)"
-                            : "rgba(255,180,0,0.35)",
+                            ? "var(--overlay-2)"
+                            : "warning.main",
                         bgcolor: msg.confirmation_status === "confirmed"
-                          ? "rgba(94,196,176,0.06)"
+                          ? "var(--overlay-1)"
                           : msg.confirmation_status === "cancelled"
-                            ? "rgba(255,255,255,0.02)"
-                            : "rgba(255,180,0,0.06)",
+                            ? "var(--overlay-1)"
+                            : "var(--overlay-2)",
                       }}
                     >
                       <Box sx={{ display: "flex", alignItems: "center", gap: 0.5, mb: 0.75 }}>

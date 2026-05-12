@@ -73,6 +73,10 @@ const ru = {
   contextSaved: "Контекст сохранён",
   noTasksInProgress: "Нет задач в работе. Начните задачу из проекта.",
 
+  // Settings - Appearance
+  themeSection: "Тема",
+  themeSectionHint: "Выберите настроение для сессии",
+
   // Settings - AI
   aiConnector: "ИИ-ассистент",
   provider: "Провайдер",

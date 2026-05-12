@@ -527,9 +527,9 @@ export default function TaskDetailPanel() {
                 onClick={() => { setDue(val); save("due", val); }}
                 sx={{
                   fontSize: 11, px: 1, py: 0.4, borderRadius: 1, cursor: "pointer",
-                  bgcolor: due === val ? "primary.main" : "rgba(255,255,255,0.06)",
+                  bgcolor: due === val ? "primary.main" : "var(--overlay-2)",
                   color: due === val ? "white" : "text.secondary",
-                  "&:hover": { bgcolor: due === val ? "primary.main" : "rgba(255,255,255,0.12)" },
+                  "&:hover": { bgcolor: due === val ? "primary.main" : "var(--overlay-3)" },
                 }}
               >
                 {label}
@@ -538,9 +538,9 @@ export default function TaskDetailPanel() {
           })}
           <Box component="label" sx={{
             fontSize: 11, px: 1, py: 0.4, borderRadius: 1, cursor: "pointer",
-            bgcolor: due && ![0,1,3,7].some(days => { const d = new Date(); d.setDate(d.getDate() + days); return d.toISOString().slice(0,10) === due; }) ? "primary.main" : "rgba(255,255,255,0.06)",
+            bgcolor: due && ![0,1,3,7].some(days => { const d = new Date(); d.setDate(d.getDate() + days); return d.toISOString().slice(0,10) === due; }) ? "primary.main" : "var(--overlay-2)",
             color: due && ![0,1,3,7].some(days => { const d = new Date(); d.setDate(d.getDate() + days); return d.toISOString().slice(0,10) === due; }) ? "white" : "text.secondary",
-            "&:hover": { bgcolor: "rgba(255,255,255,0.12)" },
+            "&:hover": { bgcolor: "var(--overlay-3)" },
             position: "relative",
           }}>
             {due && ![0,1,3,7].some(days => { const d = new Date(); d.setDate(d.getDate() + days); return d.toISOString().slice(0,10) === due; }) ? due : "📅"}

@@ -1,6 +1,8 @@
+import { useEffect, useMemo } from "react";
 import { ThemeProvider, CssBaseline, Box, Typography, Button, LinearProgress } from "@mui/material";
 import SystemUpdateIcon from "@mui/icons-material/SystemUpdate";
-import { theme } from "./theme";
+import { buildMuiTheme } from "./theme/builder";
+import { useThemeStore } from "./theme/store";
 import AppShell from "./components/layout/AppShell";
 import { useUndoRedo } from "./hooks/useUndoRedo";
 import { useAutoUpdater } from "./hooks/useAutoUpdater";
@@ -67,8 +69,14 @@ function AppContent() {
 }
 
 export default function App() {
+  const current = useThemeStore((s) => s.current);
+  const hydrateFromDb = useThemeStore((s) => s.hydrateFromDb);
+  const muiTheme = useMemo(() => buildMuiTheme(current), [current]);
+
+  useEffect(() => { hydrateFromDb(); }, [hydrateFromDb]);
+
   return (
-    <ThemeProvider theme={theme}>
+    <ThemeProvider theme={muiTheme}>
       <CssBaseline />
       <AppContent />
     </ThemeProvider>

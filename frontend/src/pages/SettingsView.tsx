@@ -12,6 +12,7 @@ import {
 import { useI18n, type Translations } from "@/i18n";
 import { useLogStore } from "@/stores/logStore";
 import * as api from "@/utils/tauri";
+import ThemePicker from "@/components/settings/ThemePicker";
 
 type Provider = "anthropic" | "openrouter";
 
@@ -55,31 +56,47 @@ export default function SettingsView() {
   const activeKey = provider === "anthropic" ? anthropicKey : openrouterKey;
 
   return (
-    <Box sx={{ p: 3, maxWidth: 480 }}>
-      <Typography variant="h6" sx={{ mb: 3 }}>
-        {t.settings}
-      </Typography>
-
-      {/* Language */}
-      <Box sx={{ mb: 3 }}>
-        <Typography variant="body2" color="text.secondary" sx={{ mb: 1 }}>
-          {t.language}
+    <Box sx={{ p: 3 }}>
+      <Box sx={{ maxWidth: 480 }}>
+        <Typography variant="h6" sx={{ mb: 3 }}>
+          {t.settings}
         </Typography>
-        <ToggleButtonGroup
-          exclusive
-          size="small"
-          value={locale}
-          onChange={(_e, val) => { if (val) setLocale(val); }}
-        >
-          <ToggleButton value="en" sx={{ px: 2 }}>English</ToggleButton>
-          <ToggleButton value="ru" sx={{ px: 2 }}>Русский</ToggleButton>
-        </ToggleButtonGroup>
+
+        {/* Language */}
+        <Box sx={{ mb: 3 }}>
+          <Typography variant="body2" color="text.secondary" sx={{ mb: 1 }}>
+            {t.language}
+          </Typography>
+          <ToggleButtonGroup
+            exclusive
+            size="small"
+            value={locale}
+            onChange={(_e, val) => { if (val) setLocale(val); }}
+          >
+            <ToggleButton value="en" sx={{ px: 2 }}>English</ToggleButton>
+            <ToggleButton value="ru" sx={{ px: 2 }}>Русский</ToggleButton>
+          </ToggleButtonGroup>
+        </Box>
       </Box>
 
       <Divider sx={{ mb: 3 }} />
 
+      {/* Theme — wider to use the horizontal space */}
+      <Box sx={{ mb: 3, maxWidth: 1400 }}>
+        <Typography variant="body1" sx={{ fontWeight: 600, mb: 0.5 }}>
+          {t.themeSection}
+        </Typography>
+        <Typography variant="body2" color="text.secondary" sx={{ mb: 1.5 }}>
+          {t.themeSectionHint}
+        </Typography>
+        <ThemePicker />
+      </Box>
+
+      <Box>
+        <Divider sx={{ mb: 3 }} />
+
       {/* AI Connector */}
-      <Box sx={{ display: "flex", flexDirection: "column", gap: 2 }}>
+      <Box sx={{ display: "flex", flexDirection: "column", gap: 2, maxWidth: 480 }}>
         <Typography variant="body1" sx={{ fontWeight: 600 }}>
           {t.aiConnector}
         </Typography>
@@ -136,7 +153,7 @@ export default function SettingsView() {
       <Divider sx={{ my: 3 }} />
 
       {/* Integrations */}
-      <Box sx={{ display: "flex", flexDirection: "column", gap: 2, mb: 3 }}>
+      <Box sx={{ display: "flex", flexDirection: "column", gap: 2, mb: 3, maxWidth: 480 }}>
         <Typography variant="body1" sx={{ fontWeight: 600 }}>
           {t.integrations}
         </Typography>
@@ -150,6 +167,7 @@ export default function SettingsView() {
 
       {/* Logs */}
       <LogPanel />
+      </Box>
     </Box>
   );
 }
@@ -173,7 +191,7 @@ function LogPanel() {
             sx={{
               maxHeight: 300,
               overflow: "auto",
-              bgcolor: "rgba(0,0,0,0.3)",
+              bgcolor: "var(--overlay-3)",
               borderRadius: 1,
               p: 1,
               fontFamily: "monospace",
@@ -275,9 +293,9 @@ function TrackerSection({ t }: { t: Translations }) {
       </Button>
 
       {userCode && (
-        <Box sx={{ p: 1.5, bgcolor: "rgba(255,255,255,0.05)", borderRadius: 1 }}>
+        <Box sx={{ p: 1.5, bgcolor: "var(--overlay-2)", borderRadius: 1 }}>
           <Typography variant="body2" sx={{ mb: 1 }}>
-            Откройте <a href={verifyUrl} target="_blank" rel="noreferrer" style={{ color: "#4DB6AC" }}>{verifyUrl}</a> и введите код:
+            Откройте <Box component="a" href={verifyUrl} target="_blank" rel="noreferrer" sx={{ color: "primary.main" }}>{verifyUrl}</Box> и введите код:
           </Typography>
           <Typography variant="h5" sx={{ fontFamily: "monospace", fontWeight: 700, letterSpacing: 4, textAlign: "center" }}>
             {userCode}
