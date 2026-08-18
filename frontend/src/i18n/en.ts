@@ -4,6 +4,7 @@ const en = {
 
   // Navigation
   allDoing: "All Doing",
+  archive: "Archive",
   projects: "PROJECTS",
   settings: "Settings",
   language: "Language",
@@ -73,6 +74,13 @@ const en = {
   contextSaved: "Context saved",
   noTasksInProgress: "No tasks in progress. Start a task from a project.",
 
+  // Archive
+  moveToArchive: "Move to archive",
+  restoreFromArchive: "Restore",
+  archiveEmpty: "The archive is empty. Tasks you park here stay out of the way until someone remembers them.",
+  archiveHint: "Tasks parked here are hidden from the board — restore any of them at any time.",
+  archivedOn: "Archived",
+
   // Settings - Appearance
   themeSection: "Theme",
   themeSectionHint: "Pick a mood for your work session",
@@ -83,6 +91,14 @@ const en = {
   model: "Model",
   save: "Save",
   saved: "Saved",
+  testConnection: "Test",
+  testRunning: "Testing…",
+  testOk: "Connection works",
+  testFailed: "Failed",
+  testToolOk: (name: string) => `Tool call ${name} went through`,
+  testToolMissing: "The model replied but called no tool — tool use is not working",
+  testKeyMissing: "Set an API key first",
+  testProjectsInDb: (n: number) => `projects in the database: ${n}`,
 
   // Settings - Integrations
   integrations: "Integrations",

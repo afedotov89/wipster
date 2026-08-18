@@ -8,9 +8,10 @@ import {
   Button,
   Divider,
   Chip,
+  CircularProgress,
 } from "@mui/material";
 import { useI18n, type Translations } from "@/i18n";
-import { useLogStore } from "@/stores/logStore";
+import { useLogStore, appLog } from "@/stores/logStore";
 import * as api from "@/utils/tauri";
 import ThemePicker from "@/components/settings/ThemePicker";
 
@@ -23,6 +24,9 @@ export default function SettingsView() {
   const [openrouterKey, setOpenrouterKey] = useState("");
   const [model, setModel] = useState("");
   const [saved, setSaved] = useState("");
+  const [testing, setTesting] = useState(false);
+  const [testResult, setTestResult] = useState<api.LlmTestResult | null>(null);
+  const [testError, setTestError] = useState("");
 
   useEffect(() => {
     Promise.all([
@@ -43,12 +47,42 @@ export default function SettingsView() {
     setTimeout(() => setSaved(""), 2000);
   };
 
-  const handleSaveAi = async () => {
+  const persistAi = async () => {
     await api.setSetting("llm_provider", provider);
     if (anthropicKey) await api.setSetting("anthropic_api_key", anthropicKey);
     if (openrouterKey) await api.setSetting("openrouter_api_key", openrouterKey);
     await api.setSetting("llm_model", model || defaultModel);
+  };
+
+  const handleSaveAi = async () => {
+    await persistAi();
     showSaved("ai");
+  };
+
+  // Test what is on screen, not what was saved earlier — so persist first, then
+  // probe through the real tool-use loop.
+  const handleTestAi = async () => {
+    if (testing) return;
+    setTestResult(null);
+    setTestError("");
+    if (!activeKey.trim()) {
+      setTestError(t.testKeyMissing);
+      return;
+    }
+    setTesting(true);
+    try {
+      await persistAi();
+      appLog.info(`[llm-test] probing ${provider} / ${model || defaultModel}`);
+      const result = await api.testLlmConnection();
+      setTestResult(result);
+      appLog.info(`[llm-test] ${result.latency_ms}ms, tools: ${result.tools_called.join(", ") || "none"}`);
+    } catch (e) {
+      const msg = String(e);
+      setTestError(msg === "API_KEY_NOT_SET" ? t.testKeyMissing : msg);
+      appLog.error(`[llm-test] failed: ${msg}`);
+    } finally {
+      setTesting(false);
+    }
   };
 
 
@@ -146,8 +180,65 @@ export default function SettingsView() {
           <Button size="small" variant="contained" onClick={handleSaveAi}>
             {t.save}
           </Button>
+          <Button
+            size="small"
+            variant="outlined"
+            onClick={handleTestAi}
+            disabled={testing}
+            startIcon={testing ? <CircularProgress size={12} color="inherit" /> : undefined}
+          >
+            {testing ? t.testRunning : t.testConnection}
+          </Button>
           {saved === "ai" && <Chip label={t.saved} size="small" color="success" />}
         </Box>
+
+        {(testResult || testError) && (
+          <Box
+            sx={{
+              p: 1.5,
+              borderRadius: 1,
+              bgcolor: "var(--overlay-2)",
+              borderLeft: "3px solid",
+              borderColor: testError
+                ? "error.main"
+                : testResult?.tools_called.length
+                  ? "success.main"
+                  : "warning.main",
+            }}
+          >
+            {testError ? (
+              <Typography variant="body2" sx={{ fontSize: 12, color: "error.main", wordBreak: "break-word" }}>
+                {t.testFailed}: {testError}
+              </Typography>
+            ) : testResult ? (
+              <>
+                <Typography variant="body2" sx={{ fontSize: 12, fontWeight: 600, mb: 0.5 }}>
+                  {t.testOk} · {testResult.model} · {testResult.latency_ms} ms
+                </Typography>
+                <Typography
+                  variant="body2"
+                  sx={{
+                    fontSize: 12,
+                    color: testResult.tools_called.length ? "success.main" : "warning.main",
+                  }}
+                >
+                  {testResult.tools_called.length
+                    ? t.testToolOk(testResult.tools_called.join(", "))
+                    : t.testToolMissing}
+                </Typography>
+                {testResult.answer && (
+                  <Typography
+                    variant="caption"
+                    color="text.secondary"
+                    sx={{ display: "block", mt: 0.5, fontSize: 11, wordBreak: "break-word" }}
+                  >
+                    «{testResult.answer}» · {t.testProjectsInDb(testResult.projects_in_db)}
+                  </Typography>
+                )}
+              </>
+            ) : null}
+          </Box>
+        )}
       </Box>
 
       <Divider sx={{ my: 3 }} />

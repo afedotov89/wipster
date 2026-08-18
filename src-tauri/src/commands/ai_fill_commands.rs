@@ -1,7 +1,7 @@
 use tauri::State;
 
 use crate::db::connection::DbState;
-use crate::models::task::Task;
+use crate::models::task::{task_from_row, Task, TASK_COLUMNS};
 use crate::services::llm_context;
 
 #[derive(serde::Serialize, serde::Deserialize)]
@@ -11,6 +11,7 @@ pub struct AiFillResult {
     pub priority: Option<String>,
     pub promised_to: Option<String>,
     pub checklist: Option<String>,
+    pub tracker_url: Option<String>,
 }
 
 #[tauri::command]
@@ -18,7 +19,7 @@ pub async fn ai_fill_task(
     db: State<'_, DbState>,
     task_id: String,
 ) -> Result<AiFillResult, String> {
-    let (provider, api_key, model, system_prompt) = {
+    let (provider, api_key, model, system_prompt, tracker_url_fill) = {
         let conn = db.0.lock().map_err(|e| e.to_string())?;
 
         let provider = conn
@@ -36,20 +37,28 @@ pub async fn ai_fill_task(
             .unwrap_or_else(|_| default_model.to_string());
 
         let task: Task = conn.query_row(
-            "SELECT id, title, project_id, status, priority, energy, due, estimate, time_estimate, tags, \
-             dod, checklist, next_step, return_ref, promised_to, comment, tracker_url, position, completed_at, created_at, updated_at FROM tasks WHERE id = ?1",
+            &format!("SELECT {} FROM tasks WHERE id = ?1", TASK_COLUMNS),
             [&task_id],
-            |row| Ok(Task {
-                id: row.get(0)?, title: row.get(1)?, project_id: row.get(2)?,
-                status: row.get(3)?, priority: row.get(4)?, energy: row.get(5)?, due: row.get(6)?,
-                estimate: row.get(7)?, time_estimate: row.get(8)?, tags: row.get(9)?, dod: row.get(10)?,
-                checklist: row.get(11)?, next_step: row.get(12)?, return_ref: row.get(13)?,
-                promised_to: row.get(14)?, comment: row.get(15)?, tracker_url: row.get(16)?, position: row.get(17)?,
-                completed_at: row.get(18)?, created_at: row.get(19)?, updated_at: row.get(20)?,
-            }),
+            task_from_row,
         ).map_err(|e| format!("Task not found: {}", e))?;
 
         let task_ctx = llm_context::task_context(&conn, &task);
+
+        // tracker_url is filled deterministically (not by the LLM): if the field
+        // is empty but the task's text references a tracker issue, use that.
+        let tracker_url_fill = if task.tracker_url.as_deref().unwrap_or("").is_empty() {
+            let refs_text = format!(
+                "{} {} {}",
+                task.title,
+                task.dod.as_deref().unwrap_or(""),
+                task.next_step.as_deref().unwrap_or(""),
+            );
+            crate::services::tracker::find_tracker_refs(&refs_text)
+                .first()
+                .map(|k| format!("https://tracker.yandex.ru/{}", k))
+        } else {
+            None
+        };
 
         // Gather examples: completed tasks from same project with filled fields
         let examples = gather_examples(&conn, task.project_id.as_deref());
@@ -63,7 +72,10 @@ pub async fn ai_fill_task(
         if checklist.is_empty() { empty_fields.push("checklist"); }
 
         if empty_fields.is_empty() {
-            return Ok(AiFillResult { time_estimate: None, dod: None, priority: None, promised_to: None, checklist: None });
+            return Ok(AiFillResult {
+                time_estimate: None, dod: None, priority: None,
+                promised_to: None, checklist: None, tracker_url: tracker_url_fill,
+            });
         }
 
         let system_prompt = format!(
@@ -75,7 +87,11 @@ pub async fn ai_fill_task(
 
 Empty fields to fill: {fields}
 
-Respond with ONLY valid JSON, no markdown:
+You have read-only tools to gather more context. Use them BEFORE answering when helpful:
+- read_tracker_issue: if the task title or any field references a Yandex Tracker issue (a tracker.yandex.ru link or a KEY-123 code), read it to base the fields on the real ticket — never guess from a bare URL.
+- search_tasks / list_tasks: to find how similar tasks were estimated and broken down.
+
+After gathering context, respond with ONLY valid JSON as your final message, no markdown:
 {{
   "time_estimate": "e.g. 30м, 1ч, 2ч, 4ч, 1д (or null)",
   "dod": "one short criterion, max 15 words (or null)",
@@ -97,48 +113,16 @@ Rules:
             fields = empty_fields.join(", "),
         );
 
-        (provider, api_key, model, system_prompt)
+        (provider, api_key, model, system_prompt, tracker_url_fill)
     };
 
-    let client = reqwest::Client::new();
-    let user_msg = "Fill the empty fields:";
-
-    let text = if provider == "openrouter" {
-        let body = serde_json::json!({
-            "model": model,
-            "max_tokens": 2000,
-            "messages": [
-                { "role": "system", "content": system_prompt },
-                { "role": "user", "content": user_msg }
-            ]
-        });
-        let resp = client.post("https://openrouter.ai/api/v1/chat/completions")
-            .header("Authorization", format!("Bearer {}", api_key))
-            .header("content-type", "application/json")
-            .json(&body).send().await.map_err(|e| e.to_string())?;
-        if !resp.status().is_success() {
-            return Err(format!("API error: {}", resp.status()));
-        }
-        let j: serde_json::Value = resp.json().await.map_err(|e| e.to_string())?;
-        j["choices"][0]["message"]["content"].as_str().unwrap_or("{}").to_string()
-    } else {
-        let body = serde_json::json!({
-            "model": model,
-            "max_tokens": 2000,
-            "system": system_prompt,
-            "messages": [{ "role": "user", "content": user_msg }]
-        });
-        let resp = client.post("https://api.anthropic.com/v1/messages")
-            .header("x-api-key", &api_key)
-            .header("anthropic-version", "2023-06-01")
-            .header("content-type", "application/json")
-            .json(&body).send().await.map_err(|e| e.to_string())?;
-        if !resp.status().is_success() {
-            return Err(format!("API error: {}", resp.status()));
-        }
-        let j: serde_json::Value = resp.json().await.map_err(|e| e.to_string())?;
-        j["content"][0]["text"].as_str().unwrap_or("{}").to_string()
-    };
+    // Run a tool-use loop with a read-only toolset so the model can pull in
+    // tracker issues / similar tasks before producing the JSON answer.
+    const FILL_TOOLS: &[&str] = &["read_tracker_issue", "search_tasks", "list_tasks", "get_task"];
+    let user_msg = "Fill the empty fields. Use tools to gather context, then reply with only the JSON.";
+    let text = crate::services::agent::run_tool_loop(
+        &provider, &api_key, &model, &system_prompt, user_msg, FILL_TOOLS, &db.0,
+    ).await?;
 
     // Parse JSON from response
     let cleaned = if let Some(start) = text.find('{') {
@@ -168,6 +152,7 @@ Rules:
         priority: raw["priority"].as_str().filter(|s| !s.is_empty()).map(|s| s.to_string()),
         promised_to: raw["promised_to"].as_str().filter(|s| !s.is_empty()).map(|s| s.to_string()),
         checklist,
+        tracker_url: tracker_url_fill,
     };
 
     Ok(result)

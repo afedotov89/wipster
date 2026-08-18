@@ -172,22 +172,32 @@ fn restore_entity(conn: &Connection, entity_type: &str, json_value: &str) -> Res
                 serde_json::from_str(json_value).map_err(|e| e.to_string())?;
             conn.execute(
                 "INSERT OR REPLACE INTO tasks \
-                 (id, title, project_id, status, priority, due, estimate, tags, \
-                  dod, checklist, next_step, return_ref, created_at, updated_at) \
-                 VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14)",
+                 (id, title, project_id, status, priority, energy, due, estimate, time_estimate, \
+                  tags, dod, checklist, next_step, return_ref, promised_to, comment, tracker_url, \
+                  position, completed_at, archived_at, created_at, updated_at) \
+                 VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15, ?16, \
+                         ?17, ?18, ?19, ?20, ?21, ?22)",
                 rusqlite::params![
                     t["id"].as_str().unwrap_or_default(),
                     t["title"].as_str().unwrap_or_default(),
                     t["project_id"].as_str(),
                     t["status"].as_str().unwrap_or("inbox"),
                     t["priority"].as_str(),
+                    t["energy"].as_str(),
                     t["due"].as_str(),
                     t["estimate"].as_str(),
+                    t["time_estimate"].as_str(),
                     t["tags"].as_str().unwrap_or("[]"),
                     t["dod"].as_str(),
                     t["checklist"].as_str().unwrap_or("[]"),
                     t["next_step"].as_str(),
                     t["return_ref"].as_str(),
+                    t["promised_to"].as_str(),
+                    t["comment"].as_str(),
+                    t["tracker_url"].as_str(),
+                    t["position"].as_i64(),
+                    t["completed_at"].as_str(),
+                    t["archived_at"].as_str(),
                     t["created_at"].as_str().unwrap_or_default(),
                     t["updated_at"].as_str().unwrap_or_default(),
                 ],

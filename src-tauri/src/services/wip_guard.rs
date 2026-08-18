@@ -1,6 +1,6 @@
 use rusqlite::Connection;
 
-use crate::models::task::Task;
+use crate::models::task::{task_from_row, Task, TASK_COLUMNS};
 
 pub const WIP_LIMIT: usize = 3;
 
@@ -11,37 +11,14 @@ pub struct WipCheckResult {
 
 pub fn check_wip(conn: &Connection, exclude_task_id: Option<&str>) -> WipCheckResult {
     let mut stmt = conn
-        .prepare(
-            "SELECT id, title, project_id, status, priority, energy, due, estimate, time_estimate, tags, \
-             dod, checklist, next_step, return_ref, promised_to, comment, tracker_url, position, completed_at, created_at, updated_at \
-             FROM tasks WHERE status = 'doing'",
-        )
+        .prepare(&format!(
+            "SELECT {} FROM tasks WHERE status = 'doing' AND archived_at IS NULL",
+            TASK_COLUMNS
+        ))
         .expect("Failed to prepare WIP check query");
 
     let tasks: Vec<Task> = stmt
-        .query_map([], |row| {
-            Ok(Task {
-                id: row.get(0)?,
-                title: row.get(1)?,
-                project_id: row.get(2)?,
-                status: row.get(3)?,
-                priority: row.get(4)?,
-                energy: row.get(5)?,
-                due: row.get(6)?,
-                estimate: row.get(7)?,
-                time_estimate: row.get(8)?,
-                tags: row.get(9)?,
-                dod: row.get(10)?,
-                checklist: row.get(11)?,
-                next_step: row.get(12)?,
-                return_ref: row.get(13)?,
-                promised_to: row.get(14)?,
-                comment: row.get(15)?, tracker_url: row.get(16)?, position: row.get(17)?,
-                completed_at: row.get(18)?,
-                created_at: row.get(19)?,
-                updated_at: row.get(20)?,
-            })
-        })
+        .query_map([], task_from_row)
         .expect("Failed to query doing tasks")
         .filter_map(|r| r.ok())
         .collect();
@@ -92,6 +69,31 @@ mod tests {
         let result = check_wip(&conn, None);
         assert!(!result.allowed);
         assert_eq!(result.doing_tasks.len(), 3);
+    }
+
+    #[test]
+    fn test_archived_tasks_do_not_consume_wip() {
+        let conn = init_test_db();
+
+        conn.execute("INSERT INTO projects (id, name) VALUES ('p1', 'Test')", [])
+            .unwrap();
+
+        for i in 0..3 {
+            conn.execute(
+                "INSERT INTO tasks (id, title, project_id, status) VALUES (?1, ?2, 'p1', 'doing')",
+                rusqlite::params![format!("t{}", i), format!("Task {}", i)],
+            )
+            .unwrap();
+        }
+        conn.execute(
+            "UPDATE tasks SET archived_at = datetime('now') WHERE id = 't0'",
+            [],
+        )
+        .unwrap();
+
+        let result = check_wip(&conn, None);
+        assert!(result.allowed);
+        assert_eq!(result.doing_tasks.len(), 2);
     }
 
     #[test]

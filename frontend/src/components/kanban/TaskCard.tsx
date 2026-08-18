@@ -4,6 +4,7 @@ import PlayArrowIcon from "@mui/icons-material/PlayArrow";
 import PauseIcon from "@mui/icons-material/Pause";
 import CheckCircleIcon from "@mui/icons-material/CheckCircle";
 import DeleteOutlineIcon from "@mui/icons-material/DeleteOutline";
+import Inventory2OutlinedIcon from "@mui/icons-material/Inventory2Outlined";
 import type { Task, TaskStatus } from "@/utils/tauri";
 import { PRIORITY_COLORS } from "@/utils/constants";
 import type { Priority } from "@/utils/tauri";
@@ -20,7 +21,7 @@ interface Props {
 
 export default function TaskCard({ task, onMove }: Props) {
   const { openDetail, selectedTaskId, detailOpen, closeDetail } = useUiStore();
-  const { remove } = useTaskStore();
+  const { remove, setArchived } = useTaskStore();
   const { t } = useI18n();
   const isSelected = detailOpen && selectedTaskId === task.id;
   const [contextMenu, setContextMenu] = useState<{ x: number; y: number } | null>(null);
@@ -74,7 +75,7 @@ export default function TaskCard({ task, onMove }: Props) {
         cursor: "grab",
         "&:hover": { bgcolor: "action.hover" },
         boxShadow: [
-          isDragging ? "0 4px 8px rgba(0,0,0,0.3)" : "0 1px 3px rgba(0,0,0,0.2)",
+          isDragging ? "var(--card-shadow-drag)" : "var(--card-shadow)",
           task.priority ? `inset 3px 0 0 ${PRIORITY_COLORS[task.priority as Priority] || "#95a5a6"}` : null,
           task.energy ? `inset -3px 0 0 ${{ low: "#5b7fa6", medium: "#6da87a", high: "#d4a843" }[task.energy]}` : null,
         ].filter(Boolean).join(", "),
@@ -217,6 +218,19 @@ export default function TaskCard({ task, onMove }: Props) {
         anchorPosition={contextMenu ? { top: contextMenu.y, left: contextMenu.x } : undefined}
         slotProps={{ paper: { sx: { minWidth: 140 } } }}
       >
+        <MenuItem
+          onClick={() => {
+            if (isSelected) closeDetail();
+            setArchived(task.id, true);
+            setContextMenu(null);
+          }}
+          sx={{ fontSize: 13 }}
+        >
+          <ListItemIcon sx={{ minWidth: 28 }}>
+            <Inventory2OutlinedIcon fontSize="small" />
+          </ListItemIcon>
+          {t.moveToArchive}
+        </MenuItem>
         <MenuItem
           onClick={() => {
             if (isSelected) closeDetail();

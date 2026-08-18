@@ -126,6 +126,11 @@ pub fn run(conn: &Connection) -> Result<(), Box<dyn std::error::Error>> {
         conn.execute("INSERT OR REPLACE INTO schema_version (version) VALUES (?1)", [12])?;
     }
 
+    if version < 13 {
+        conn.execute_batch("ALTER TABLE tasks ADD COLUMN archived_at TEXT;")?;
+        conn.execute("INSERT OR REPLACE INTO schema_version (version) VALUES (?1)", [13])?;
+    }
+
     Ok(())
 }
 
@@ -147,7 +152,7 @@ mod tests {
         let conn = Connection::open_in_memory().unwrap();
         conn.execute_batch("PRAGMA foreign_keys=ON;").unwrap();
         run(&conn).unwrap();
-        assert_eq!(current_version(&conn), 12);
+        assert_eq!(current_version(&conn), 13);
     }
 
     #[test]
@@ -156,6 +161,6 @@ mod tests {
         conn.execute_batch("PRAGMA foreign_keys=ON;").unwrap();
         run(&conn).unwrap();
         run(&conn).unwrap();
-        assert_eq!(current_version(&conn), 12);
+        assert_eq!(current_version(&conn), 13);
     }
 }

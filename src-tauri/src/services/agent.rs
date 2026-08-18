@@ -102,6 +102,18 @@ fn tool_definitions() -> Vec<Value> {
             }
         }),
         json!({
+            "name": "set_task_archived",
+            "description": "Archive a task (hides it from the board without deleting it) or restore it from the archive. Use for stale tasks nobody intends to do.",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "task_id": { "type": "string" },
+                    "archived": { "type": "boolean", "description": "true = move to archive, false = restore to the board" },
+                },
+                "required": ["task_id", "archived"]
+            }
+        }),
+        json!({
             "name": "search_tasks",
             "description": "Search tasks by text query, project, or status",
             "parameters": {
@@ -179,26 +191,17 @@ fn record(conn: &Connection, action: &str, entity_type: &str, entity_id: &str, o
     let _ = crate::services::undo_redo::record_change(conn, action, entity_type, entity_id, old, new, None);
 }
 
+/// Full-fidelity snapshot so undo/redo can restore every column, not just the
+/// ones the agent happened to touch.
 fn task_snapshot(conn: &Connection, id: &str) -> Option<String> {
+    use crate::models::task::{task_from_row, TASK_COLUMNS};
     conn.query_row(
-        "SELECT id, title, project_id, status, priority, due, time_estimate, dod, promised_to, comment, tracker_url FROM tasks WHERE id = ?1",
+        &format!("SELECT {} FROM tasks WHERE id = ?1", TASK_COLUMNS),
         [id],
-        |row| {
-            Ok(serde_json::json!({
-                "id": row.get::<_, String>(0)?,
-                "title": row.get::<_, String>(1)?,
-                "project_id": row.get::<_, Option<String>>(2)?,
-                "status": row.get::<_, String>(3)?,
-                "priority": row.get::<_, Option<String>>(4)?,
-                "due": row.get::<_, Option<String>>(5)?,
-                "time_estimate": row.get::<_, Option<String>>(6)?,
-                "dod": row.get::<_, Option<String>>(7)?,
-                "promised_to": row.get::<_, Option<String>>(8)?,
-                "comment": row.get::<_, Option<String>>(9)?,
-                "tracker_url": row.get::<_, Option<String>>(10)?,
-            }).to_string())
-        },
-    ).ok()
+        task_from_row,
+    )
+    .ok()
+    .and_then(|task| serde_json::to_string(&task).ok())
 }
 
 fn execute_tool_sync(conn: &Connection, tool_name: &str, args: &Value) -> Result<String, String> {
@@ -215,10 +218,18 @@ fn execute_tool_sync(conn: &Connection, tool_name: &str, args: &Value) -> Result
             let promised_to = args["promised_to"].as_str();
             let tracker_url = args["tracker_url"].as_str();
 
+            // New tasks land on top of their column, same as the quick-add input.
+            let position: i32 = conn.query_row(
+                "SELECT COALESCE(MIN(position), 0) - 1 FROM tasks \
+                 WHERE project_id IS ?1 AND status = ?2 AND archived_at IS NULL",
+                rusqlite::params![project_id, status],
+                |row| row.get(0),
+            ).unwrap_or(-1);
+
             conn.execute(
-                "INSERT INTO tasks (id, title, project_id, status, priority, due, time_estimate, dod, promised_to, tracker_url) \
-                 VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10)",
-                rusqlite::params![id, title, project_id, status, priority, due, time_estimate, dod, promised_to, tracker_url],
+                "INSERT INTO tasks (id, title, project_id, status, priority, due, time_estimate, dod, promised_to, tracker_url, position) \
+                 VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11)",
+                rusqlite::params![id, title, project_id, status, priority, due, time_estimate, dod, promised_to, tracker_url, position],
             ).map_err(|e| e.to_string())?;
 
             let snap = task_snapshot(conn, &id);
@@ -288,12 +299,45 @@ fn execute_tool_sync(conn: &Connection, tool_name: &str, args: &Value) -> Result
             record(conn, "delete", "task", task_id, old_snap.as_deref(), None);
             Ok(format!("Deleted task {}", task_id))
         }
+        "set_task_archived" => {
+            let task_id = args["task_id"].as_str().ok_or("missing task_id")?;
+            let archived = args["archived"].as_bool().ok_or("missing archived")?;
+            let old_snap = task_snapshot(conn, task_id);
+
+            if archived {
+                conn.execute(
+                    "UPDATE tasks SET archived_at = datetime('now'), updated_at = datetime('now') WHERE id = ?1",
+                    [task_id],
+                ).map_err(|e| e.to_string())?;
+            } else {
+                // A task archived mid-flight only returns to 'doing' if WIP allows it.
+                let doing: i32 = conn.query_row(
+                    "SELECT COUNT(*) FROM tasks WHERE status = 'doing' AND archived_at IS NULL AND id != ?1",
+                    [task_id], |r| r.get(0),
+                ).unwrap_or(0);
+                conn.execute(
+                    "UPDATE tasks SET archived_at = NULL, updated_at = datetime('now'), \
+                     status = CASE WHEN status = 'doing' AND ?2 >= 3 THEN 'queue' ELSE status END \
+                     WHERE id = ?1",
+                    rusqlite::params![task_id, doing],
+                ).map_err(|e| e.to_string())?;
+            }
+
+            let new_snap = task_snapshot(conn, task_id);
+            record(conn, "update", "task", task_id, old_snap.as_deref(), new_snap.as_deref());
+
+            Ok(format!(
+                "{} task {}",
+                if archived { "Archived" } else { "Restored" },
+                task_id
+            ))
+        }
         "search_tasks" => {
             let query = args["query"].as_str().unwrap_or("");
             let project_id = args["project_id"].as_str();
             let status = args["status"].as_str();
 
-            let mut sql = "SELECT id, title, status, priority, due, time_estimate FROM tasks WHERE 1=1".to_string();
+            let mut sql = "SELECT id, title, status, priority, due, time_estimate FROM tasks WHERE archived_at IS NULL".to_string();
             let mut params: Vec<Box<dyn rusqlite::types::ToSql>> = Vec::new();
 
             if !query.is_empty() {
@@ -336,7 +380,7 @@ fn execute_tool_sync(conn: &Connection, tool_name: &str, args: &Value) -> Result
 
             let mut sql = "SELECT t.id, t.title, t.status, t.priority, t.due, t.time_estimate, \
                            COALESCE(p.name, '') FROM tasks t \
-                           LEFT JOIN projects p ON t.project_id = p.id WHERE 1=1".to_string();
+                           LEFT JOIN projects p ON t.project_id = p.id WHERE t.archived_at IS NULL".to_string();
             let mut params: Vec<Box<dyn rusqlite::types::ToSql>> = Vec::new();
 
             if let Some(pid) = project_id {
@@ -503,6 +547,7 @@ Rules:
 - Use search_tasks to find a specific task by name
 - When user mentions a tracker link, use read_tracker_issue to get details
 - When creating tasks, fill in as many fields as you can infer
+- Stale tasks nobody plans to do belong in the archive (set_task_archived), not the trash — archived tasks are hidden from list_tasks/search_tasks but can be restored
 - Use remember to save personal info the user shares"#,
         memory = memory_section,
     )
@@ -829,4 +874,118 @@ pub async fn chat(
         text: "Reached maximum tool call iterations.".to_string(),
         tool_calls: all_tool_calls, pending_confirmations: vec![], continuation: None,
     })
+}
+
+/// Run a self-contained tool-use loop with a restricted, read-only toolset and
+/// return the model's final text answer. Used by structured-output features
+/// (e.g. AI fill) that need the agent to gather context via tools but must not
+/// expose mutating tools. `allowed_tools` is intersected with the safe (non-
+/// dangerous) tool set, so it can never execute confirmation-gated actions.
+pub async fn run_tool_loop(
+    provider: &str,
+    api_key: &str,
+    model: &str,
+    system: &str,
+    user_message: &str,
+    allowed_tools: &[&str],
+    db: &Mutex<Connection>,
+) -> Result<String, String> {
+    run_tool_loop_traced(provider, api_key, model, system, user_message, allowed_tools, db)
+        .await
+        .map(|(text, _)| text)
+}
+
+/// Same loop as [`run_tool_loop`], but also returns every tool call it made.
+/// Used by the connection test, which has to prove tool use actually happened.
+pub async fn run_tool_loop_traced(
+    provider: &str,
+    api_key: &str,
+    model: &str,
+    system: &str,
+    user_message: &str,
+    allowed_tools: &[&str],
+    db: &Mutex<Connection>,
+) -> Result<(String, Vec<ToolCallLog>), String> {
+    let tool_defs: Vec<Value> = tool_definitions()
+        .into_iter()
+        .filter(|d| {
+            let name = d["name"].as_str().unwrap_or("");
+            allowed_tools.contains(&name) && !is_dangerous(name)
+        })
+        .collect();
+
+    let client = Client::builder()
+        .timeout(std::time::Duration::from_secs(120))
+        .build()
+        .map_err(|e| e.to_string())?;
+
+    let is_anthropic = provider != "openrouter";
+    let formatted_tools = if is_anthropic { tools_for_anthropic(&tool_defs) } else { tools_for_openai(&tool_defs) };
+
+    let mut messages: Vec<Value> = vec![json!({"role": "user", "content": user_message})];
+    let mut trace: Vec<ToolCallLog> = Vec::new();
+    let max_iterations = 8;
+
+    for iteration in 0..max_iterations {
+        crate::services::logger::log("info", &format!("[agent:loop] iteration {}, messages: {}", iteration, messages.len()));
+
+        let (text, tool_calls, _stop) = if is_anthropic {
+            call_anthropic(&client, api_key, model, system, &messages, &formatted_tools).await?
+        } else {
+            call_openai(&client, api_key, model, system, &messages, &formatted_tools).await?
+        };
+
+        // No tool calls — this is the final answer
+        if tool_calls.is_empty() {
+            return Ok((text.unwrap_or_default(), trace));
+        }
+
+        // Append the assistant message carrying the tool calls
+        if is_anthropic {
+            let mut content_blocks: Vec<Value> = Vec::new();
+            if let Some(t) = &text {
+                content_blocks.push(json!({"type": "text", "text": t}));
+            }
+            for (id, name, input) in &tool_calls {
+                content_blocks.push(json!({"type": "tool_use", "id": id, "name": name, "input": input}));
+            }
+            messages.push(json!({"role": "assistant", "content": content_blocks}));
+        } else {
+            let tc_array: Vec<Value> = tool_calls.iter().map(|(id, name, args)| {
+                json!({
+                    "id": id, "type": "function",
+                    "function": {"name": name, "arguments": serde_json::to_string(args).unwrap_or_default()}
+                })
+            }).collect();
+            messages.push(json!({"role": "assistant", "content": text, "tool_calls": tc_array}));
+        }
+
+        // Execute every call — the allowlist guarantees they are safe reads
+        let mut anthropic_results: Vec<Value> = Vec::new();
+        for (id, name, args) in &tool_calls {
+            let result = execute_tool_async(name, args, db).await;
+            crate::services::logger::log("info", &format!("[agent:loop] tool {}({}) -> {}", name, args, &result[..result.len().min(200)]));
+            trace.push(ToolCallLog {
+                tool_name: name.clone(),
+                arguments: args.clone(),
+                result: result.clone(),
+            });
+            if is_anthropic {
+                anthropic_results.push(json!({"type": "tool_result", "tool_use_id": id, "content": result}));
+            } else {
+                messages.push(json!({"role": "tool", "tool_call_id": id, "content": result}));
+            }
+        }
+        if is_anthropic && !anthropic_results.is_empty() {
+            messages.push(json!({"role": "user", "content": anthropic_results}));
+        }
+    }
+
+    // Iteration cap hit — one final call and take whatever text comes back
+    let (text, _, _) = if is_anthropic {
+        call_anthropic(&client, api_key, model, system, &messages, &formatted_tools).await?
+    } else {
+        call_openai(&client, api_key, model, system, &messages, &formatted_tools).await?
+    };
+    Ok((text.unwrap_or_default(), trace))
 }

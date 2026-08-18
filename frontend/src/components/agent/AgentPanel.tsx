@@ -180,7 +180,13 @@ export default function AgentPanel() {
           setVisible(true);
           setTimeout(() => inputRef.current?.focus(), 100);
         }}
-        sx={{ position: "fixed", bottom: 16, right: 16, bgcolor: "primary.main", color: "white", "&:hover": { bgcolor: "primary.dark" } }}
+        sx={{
+          position: "fixed", bottom: 16, right: 16,
+          bgcolor: "background.paper", color: "primary.main",
+          boxShadow: "var(--card-shadow)",
+          transition: "background-color 0.15s, transform 0.15s",
+          "&:hover": { bgcolor: "background.paper", transform: "translateY(-1px)" },
+        }}
       >
         <SmartToyIcon />
       </IconButton>

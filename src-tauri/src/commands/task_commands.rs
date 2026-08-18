@@ -2,8 +2,23 @@ use tauri::State;
 use uuid::Uuid;
 
 use crate::db::connection::DbState;
-use crate::models::task::{CreateTaskInput, MoveTaskInput, Task, TaskStatus, UpdateTaskInput};
+use crate::models::task::{
+    task_from_row, CreateTaskInput, MoveTaskInput, Task, TaskStatus, UpdateTaskInput, TASK_COLUMNS,
+};
 use crate::services::{undo_redo, wip_guard};
+
+/// Position that places a task above every other task in its column.
+/// Columns are (project_id, status) pairs; `reorder_tasks` renumbers them from 0
+/// on the next drag, so drifting into negatives is harmless.
+fn top_position(conn: &rusqlite::Connection, project_id: Option<&str>, status: &str) -> i32 {
+    conn.query_row(
+        "SELECT COALESCE(MIN(position), 0) - 1 FROM tasks \
+         WHERE project_id IS ?1 AND status = ?2 AND archived_at IS NULL",
+        rusqlite::params![project_id, status],
+        |row| row.get(0),
+    )
+    .unwrap_or(-1)
+}
 
 #[tauri::command]
 pub fn list_tasks(
@@ -13,9 +28,9 @@ pub fn list_tasks(
 ) -> Result<Vec<Task>, String> {
     let conn = db.0.lock().map_err(|e| e.to_string())?;
 
-    let mut sql = String::from(
-        "SELECT id, title, project_id, status, priority, energy, due, estimate, time_estimate, tags, \
-         dod, checklist, next_step, return_ref, promised_to, comment, tracker_url, position, completed_at, created_at, updated_at FROM tasks WHERE 1=1",
+    let mut sql = format!(
+        "SELECT {} FROM tasks WHERE archived_at IS NULL",
+        TASK_COLUMNS
     );
     let mut params: Vec<Box<dyn rusqlite::types::ToSql>> = Vec::new();
 
@@ -28,6 +43,9 @@ pub fn list_tasks(
         params.push(Box::new(s.clone()));
     }
 
+    // Priority/due/energy stay the leading keys. A freshly created task is held on
+    // top of the board by the client until the next reload; `position` is what it
+    // settles into then — the top of its sort group rather than the bottom.
     sql.push_str(" ORDER BY \
         CASE priority WHEN 'p0' THEN 0 WHEN 'p1' THEN 1 WHEN 'p2' THEN 2 WHEN 'p3' THEN 3 ELSE 4 END ASC, \
         CASE WHEN due IS NULL THEN 1 ELSE 0 END ASC, due ASC, \
@@ -39,34 +57,85 @@ pub fn list_tasks(
     let param_refs: Vec<&dyn rusqlite::types::ToSql> = params.iter().map(|p| p.as_ref()).collect();
 
     let tasks = stmt
-        .query_map(param_refs.as_slice(), |row| {
-            Ok(Task {
-                id: row.get(0)?,
-                title: row.get(1)?,
-                project_id: row.get(2)?,
-                status: row.get(3)?,
-                priority: row.get(4)?,
-                energy: row.get(5)?,
-                due: row.get(6)?,
-                estimate: row.get(7)?,
-                time_estimate: row.get(8)?,
-                tags: row.get(9)?,
-                dod: row.get(10)?,
-                checklist: row.get(11)?,
-                next_step: row.get(12)?,
-                return_ref: row.get(13)?,
-                promised_to: row.get(14)?,
-                comment: row.get(15)?, tracker_url: row.get(16)?, position: row.get(17)?,
-                completed_at: row.get(18)?,
-                created_at: row.get(19)?,
-                updated_at: row.get(20)?,
-            })
-        })
+        .query_map(param_refs.as_slice(), task_from_row)
         .map_err(|e| e.to_string())?
         .filter_map(|r| r.ok())
         .collect();
 
     Ok(tasks)
+}
+
+/// Archived tasks across all projects, most recently archived first.
+#[tauri::command]
+pub fn list_archived_tasks(db: State<'_, DbState>) -> Result<Vec<Task>, String> {
+    let conn = db.0.lock().map_err(|e| e.to_string())?;
+
+    let sql = format!(
+        "SELECT {} FROM tasks WHERE archived_at IS NOT NULL ORDER BY archived_at DESC",
+        TASK_COLUMNS
+    );
+    let mut stmt = conn.prepare(&sql).map_err(|e| e.to_string())?;
+
+    let tasks = stmt
+        .query_map([], task_from_row)
+        .map_err(|e| e.to_string())?
+        .filter_map(|r| r.ok())
+        .collect();
+
+    Ok(tasks)
+}
+
+/// Move a task into the archive, or restore it back onto the board.
+/// A restored task returns to the status it had when archived (falling back to
+/// `queue` if `doing` is at the WIP limit) and lands on top of that column.
+#[tauri::command]
+pub fn set_task_archived(
+    db: State<'_, DbState>,
+    id: String,
+    archived: bool,
+) -> Result<Task, String> {
+    let conn = db.0.lock().map_err(|e| e.to_string())?;
+
+    let old = get_task_by_id(&conn, &id)?;
+    let old_json = serde_json::to_string(&old).map_err(|e| e.to_string())?;
+
+    if archived {
+        conn.execute(
+            "UPDATE tasks SET archived_at = datetime('now'), updated_at = datetime('now') WHERE id = ?1",
+            [&id],
+        )
+        .map_err(|e| e.to_string())?;
+    } else {
+        // A task archived while in progress can only come back if there is WIP room.
+        let status = if old.status == "doing" && !wip_guard::check_wip(&conn, Some(&id)).allowed {
+            "queue".to_string()
+        } else {
+            old.status.clone()
+        };
+        let position = top_position(&conn, old.project_id.as_deref(), &status);
+
+        conn.execute(
+            "UPDATE tasks SET archived_at = NULL, status = ?1, position = ?2, updated_at = datetime('now') WHERE id = ?3",
+            rusqlite::params![status, position, id],
+        )
+        .map_err(|e| e.to_string())?;
+    }
+
+    let updated = get_task_by_id(&conn, &id)?;
+    let new_json = serde_json::to_string(&updated).map_err(|e| e.to_string())?;
+
+    undo_redo::record_change(
+        &conn,
+        "update",
+        "task",
+        &id,
+        Some(&old_json),
+        Some(&new_json),
+        None,
+    )
+    .map_err(|e| e.to_string())?;
+
+    Ok(updated)
 }
 
 #[tauri::command]
@@ -84,9 +153,11 @@ pub fn create_task(db: State<'_, DbState>, input: CreateTaskInput) -> Result<Tas
         }
     }
 
+    let position = top_position(&conn, input.project_id.as_deref(), &status);
+
     conn.execute(
-        "INSERT INTO tasks (id, title, project_id, status) VALUES (?1, ?2, ?3, ?4)",
-        rusqlite::params![id, input.title, input.project_id, status],
+        "INSERT INTO tasks (id, title, project_id, status, position) VALUES (?1, ?2, ?3, ?4, ?5)",
+        rusqlite::params![id, input.title, input.project_id, status, position],
     )
     .map_err(|e| e.to_string())?;
 
@@ -356,7 +427,7 @@ pub fn get_project_task_counts(db: State<'_, DbState>) -> Result<Vec<ProjectTask
          SUM(CASE WHEN status = 'queue' THEN 1 ELSE 0 END), \
          SUM(CASE WHEN status = 'doing' THEN 1 ELSE 0 END), \
          SUM(CASE WHEN status = 'done' THEN 1 ELSE 0 END) \
-         FROM tasks WHERE project_id IS NOT NULL GROUP BY project_id"
+         FROM tasks WHERE project_id IS NOT NULL AND archived_at IS NULL GROUP BY project_id"
     ).map_err(|e| e.to_string())?;
 
     let counts = stmt.query_map([], |row| {
@@ -394,40 +465,63 @@ pub fn get_doing_tasks(db: State<'_, DbState>) -> Result<Vec<Task>, String> {
 
 fn get_task_by_id(conn: &rusqlite::Connection, id: &str) -> Result<Task, String> {
     conn.query_row(
-        "SELECT id, title, project_id, status, priority, energy, due, estimate, time_estimate, tags, \
-         dod, checklist, next_step, return_ref, promised_to, comment, tracker_url, position, completed_at, created_at, updated_at \
-         FROM tasks WHERE id = ?1",
+        &format!("SELECT {} FROM tasks WHERE id = ?1", TASK_COLUMNS),
         [id],
-        |row| {
-            Ok(Task {
-                id: row.get(0)?,
-                title: row.get(1)?,
-                project_id: row.get(2)?,
-                status: row.get(3)?,
-                priority: row.get(4)?,
-                energy: row.get(5)?,
-                due: row.get(6)?,
-                estimate: row.get(7)?,
-                time_estimate: row.get(8)?,
-                tags: row.get(9)?,
-                dod: row.get(10)?,
-                checklist: row.get(11)?,
-                next_step: row.get(12)?,
-                return_ref: row.get(13)?,
-                promised_to: row.get(14)?,
-                comment: row.get(15)?, tracker_url: row.get(16)?, position: row.get(17)?,
-                completed_at: row.get(18)?,
-                created_at: row.get(19)?,
-                updated_at: row.get(20)?,
-            })
-        },
+        task_from_row,
     )
     .map_err(|e| format!("Task not found: {}", e))
 }
 
 #[cfg(test)]
 mod tests {
+    use super::top_position;
     use crate::db::connection::init_test_db;
+
+    #[test]
+    fn test_top_position_is_above_every_task_in_the_column() {
+        let conn = init_test_db();
+        conn.execute("INSERT INTO projects (id, name) VALUES ('p1', 'Test')", [])
+            .unwrap();
+
+        // Empty column — first task still gets a position, so later ones can go above it.
+        assert_eq!(top_position(&conn, Some("p1"), "queue"), -1);
+
+        for (id, pos) in [("t0", 0), ("t1", 1), ("t2", 2)] {
+            conn.execute(
+                "INSERT INTO tasks (id, title, project_id, status, position) VALUES (?1, ?1, 'p1', 'queue', ?2)",
+                rusqlite::params![id, pos],
+            )
+            .unwrap();
+        }
+        assert_eq!(top_position(&conn, Some("p1"), "queue"), -1);
+
+        // Other columns and other projects are independent.
+        assert_eq!(top_position(&conn, Some("p1"), "doing"), -1);
+        assert_eq!(top_position(&conn, None, "queue"), -1);
+
+        // Repeated quick-adds keep stacking on top.
+        conn.execute(
+            "INSERT INTO tasks (id, title, project_id, status, position) VALUES ('t3', 't3', 'p1', 'queue', -1)",
+            [],
+        )
+        .unwrap();
+        assert_eq!(top_position(&conn, Some("p1"), "queue"), -2);
+    }
+
+    #[test]
+    fn test_top_position_ignores_archived_tasks() {
+        let conn = init_test_db();
+        conn.execute("INSERT INTO projects (id, name) VALUES ('p1', 'Test')", [])
+            .unwrap();
+        conn.execute(
+            "INSERT INTO tasks (id, title, project_id, status, position, archived_at) \
+             VALUES ('a1', 'archived', 'p1', 'queue', -50, datetime('now'))",
+            [],
+        )
+        .unwrap();
+
+        assert_eq!(top_position(&conn, Some("p1"), "queue"), -1);
+    }
 
     #[test]
     fn test_task_crud() {

@@ -15,20 +15,24 @@ import {
 } from "@mui/material";
 import AddIcon from "@mui/icons-material/Add";
 import PlayCircleIcon from "@mui/icons-material/PlayCircle";
+import Inventory2OutlinedIcon from "@mui/icons-material/Inventory2Outlined";
 import EditIcon from "@mui/icons-material/Edit";
 import DeleteOutlineIcon from "@mui/icons-material/DeleteOutline";
 import PaletteIcon from "@mui/icons-material/Palette";
 import SettingsIcon from "@mui/icons-material/Settings";
 import { useProjectStore } from "@/stores/projectStore";
+import { useTaskStore } from "@/stores/taskStore";
 import { useUiStore } from "@/stores/uiStore";
 import { useI18n } from "@/i18n";
 import { getProjectTaskCounts, type ProjectTaskCounts } from "@/utils/tauri";
+import { TITLEBAR_HEIGHT } from "@/utils/constants";
 import ProjectAppearancePicker, { getProjectIcon } from "./ProjectAppearancePicker";
 
 export default function Sidebar() {
   const { projects, selectedProjectId, load, select, add, update, remove } =
     useProjectStore();
   const { view, setView } = useUiStore();
+  const { archivedTasks, loadArchived } = useTaskStore();
   const { t } = useI18n();
   const [adding, setAdding] = useState(false);
   const [newName, setNewName] = useState("");
@@ -60,11 +64,12 @@ export default function Sidebar() {
   useEffect(() => {
     const loadCounts = () => {
       getProjectTaskCounts().then(setCounts).catch(() => {});
+      loadArchived();
     };
     loadCounts();
     const interval = setInterval(loadCounts, 3000);
     return () => clearInterval(interval);
-  }, []);
+  }, [loadArchived]);
 
   const handleAdd = async () => {
     if (!newName.trim()) {
@@ -122,10 +127,13 @@ export default function Sidebar() {
         borderColor: "divider",
         display: "flex",
         flexDirection: "column",
-        bgcolor: "background.default",
+        bgcolor: "var(--sidebar-tint)",
       }}
     >
-      <Box sx={{ p: 2, pb: 1 }}>
+      {/* Clears the traffic lights, which float over the sidebar in Overlay mode */}
+      <Box data-tauri-drag-region sx={{ height: TITLEBAR_HEIGHT, flexShrink: 0 }} />
+
+      <Box sx={{ p: 2, pt: 1, pb: 1 }}>
         <Typography variant="subtitle2" color="text.secondary" sx={{ mb: 1 }}>
           {t.appName}
         </Typography>
@@ -276,6 +284,26 @@ export default function Sidebar() {
       </Menu>
 
       <List dense disablePadding sx={{ borderTop: 1, borderColor: "divider" }}>
+        <ListItemButton
+          selected={view === "archive"}
+          onClick={() => {
+            setView("archive");
+            select(null);
+          }}
+        >
+          <ListItemIcon sx={{ minWidth: 32 }}>
+            <Inventory2OutlinedIcon fontSize="small" />
+          </ListItemIcon>
+          <ListItemText
+            primary={t.archive}
+            primaryTypographyProps={{ fontSize: 13 }}
+          />
+          {archivedTasks.length > 0 && (
+            <Typography variant="caption" sx={{ fontSize: 11, opacity: 0.5, ml: 0.5, flexShrink: 0 }}>
+              {archivedTasks.length}
+            </Typography>
+          )}
+        </ListItemButton>
         <ListItemButton
           selected={view === "settings"}
           onClick={() => setView("settings")}

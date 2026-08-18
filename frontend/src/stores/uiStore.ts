@@ -1,6 +1,6 @@
 import { create } from "zustand";
 
-type View = "project" | "all-doing" | "settings";
+type View = "project" | "all-doing" | "archive" | "settings";
 
 interface UiState {
   view: View;

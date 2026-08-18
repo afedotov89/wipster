@@ -30,3 +30,6 @@ export const PRIORITIES: Priority[] = ["p0", "p1", "p2", "p3"];
 export const ESTIMATES: Estimate[] = ["s", "m", "l"];
 
 export const WIP_LIMIT = 3;
+
+/** Height of the macOS titlebar the webview draws under in "Overlay" mode. */
+export const TITLEBAR_HEIGHT = 28;

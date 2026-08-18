@@ -5,7 +5,7 @@ import { useProjectStore } from "@/stores/projectStore";
 
 export function useUndoRedo() {
   const { undo, redo, refresh } = useHistoryStore();
-  const { load: loadTasks, loadDoing } = useTaskStore();
+  const { load: loadTasks, loadDoing, loadArchived } = useTaskStore();
   const { selectedProjectId, load: loadProjects } = useProjectStore();
 
   useEffect(() => {
@@ -31,9 +31,10 @@ export function useUndoRedo() {
       await loadProjects();
       if (selectedProjectId) await loadTasks(selectedProjectId);
       await loadDoing();
+      await loadArchived();
     };
 
     window.addEventListener("keydown", handler);
     return () => window.removeEventListener("keydown", handler);
-  }, [undo, redo, loadTasks, loadDoing, loadProjects, selectedProjectId]);
+  }, [undo, redo, loadTasks, loadDoing, loadArchived, loadProjects, selectedProjectId]);
 }

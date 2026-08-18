@@ -15,6 +15,8 @@ describe("taskStore", () => {
     useTaskStore.setState({
       tasks: [],
       doingTasks: [],
+      archivedTasks: [],
+      pinnedTaskId: null,
       loading: false,
     });
   });
@@ -72,6 +74,66 @@ describe("taskStore", () => {
 
     expect(task.title).toBe("New Task");
     expect(useTaskStore.getState().tasks).toHaveLength(1);
+  });
+
+  it("pins a newly added task to the top of the list", async () => {
+    useTaskStore.setState({
+      tasks: [{ id: "t1", title: "Old", status: "queue" }] as any[],
+    });
+    mockedInvoke.mockResolvedValue({ id: "t2", title: "New Task", status: "queue" });
+
+    await useTaskStore.getState().add("New Task", "p1");
+
+    expect(useTaskStore.getState().tasks.map((t) => t.id)).toEqual(["t2", "t1"]);
+    expect(useTaskStore.getState().pinnedTaskId).toBe("t2");
+  });
+
+  it("releases the pin on reload, letting the backend order settle", async () => {
+    useTaskStore.setState({ pinnedTaskId: "t2" });
+    mockedInvoke.mockResolvedValue([
+      { id: "t1", title: "Old", status: "queue" },
+      { id: "t2", title: "New Task", status: "queue" },
+    ]);
+
+    await useTaskStore.getState().load("p1");
+
+    expect(useTaskStore.getState().tasks.map((t) => t.id)).toEqual(["t1", "t2"]);
+    expect(useTaskStore.getState().pinnedTaskId).toBeNull();
+  });
+
+  it("archiving removes the task from the board and lists it in the archive", async () => {
+    useTaskStore.setState({
+      tasks: [{ id: "t1", title: "Stale", status: "queue" }] as any[],
+      doingTasks: [],
+      archivedTasks: [],
+    });
+    mockedInvoke.mockResolvedValue({
+      id: "t1",
+      title: "Stale",
+      status: "queue",
+      archived_at: "2026-08-17 10:00:00",
+    });
+
+    await useTaskStore.getState().setArchived("t1", true);
+
+    expect(mockedInvoke).toHaveBeenCalledWith("set_task_archived", {
+      id: "t1",
+      archived: true,
+    });
+    expect(useTaskStore.getState().tasks).toHaveLength(0);
+    expect(useTaskStore.getState().archivedTasks.map((t) => t.id)).toEqual(["t1"]);
+  });
+
+  it("restoring drops the task from the archive list", async () => {
+    useTaskStore.setState({
+      tasks: [],
+      archivedTasks: [{ id: "t1", title: "Stale", status: "queue" }] as any[],
+    });
+    mockedInvoke.mockResolvedValue({ id: "t1", title: "Stale", status: "queue", archived_at: null });
+
+    await useTaskStore.getState().setArchived("t1", false);
+
+    expect(useTaskStore.getState().archivedTasks).toHaveLength(0);
   });
 
   it("getByStatus filters correctly", () => {

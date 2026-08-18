@@ -40,8 +40,10 @@ export default function QuickAddInput() {
 
     const task = await add(title, selectedProjectId ?? undefined);
     setValue("");
-    await refresh();
+    // Open before any further await so the pin and the open panel land in one
+    // render — otherwise the task would settle before the user ever sees it.
     openDetail(task.id);
+    await refresh();
   };
 
   return (

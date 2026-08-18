@@ -24,7 +24,7 @@ function ThemePreview({ def }: { def: ThemeDef }) {
         borderRadius: 1.5,
         overflow: "hidden",
         backgroundColor: def.bgDefault,
-        backgroundImage: def.ambient,
+        backgroundImage: def.ambient.join(", "),
         backgroundAttachment: "local",
         backgroundSize: "200% 200%",
         backgroundPosition: "center",

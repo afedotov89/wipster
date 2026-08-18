@@ -36,6 +36,7 @@ export interface Task {
   tracker_url: string | null;
   position: number | null;
   completed_at: string | null;
+  archived_at: string | null;
   created_at: string;
   updated_at: string;
 }
@@ -109,6 +110,11 @@ export const moveTask = (taskId: string, newStatus: TaskStatus, swapTaskId?: str
 
 export const getDoingTasks = () => invoke<Task[]>("get_doing_tasks");
 
+export const listArchivedTasks = () => invoke<Task[]>("list_archived_tasks");
+
+export const setTaskArchived = (id: string, archived: boolean) =>
+  invoke<Task>("set_task_archived", { id, archived });
+
 export interface ProjectTaskCounts {
   project_id: string;
   queue: number;
@@ -167,6 +173,17 @@ export interface AgentResponse {
 
 export const agentChat = (message: string, focusedTaskId?: string, history?: [string, string][]) =>
   invoke<AgentResponse>("agent_chat", { message, focusedTaskId, history });
+
+export interface LlmTestResult {
+  provider: string;
+  model: string;
+  latency_ms: number;
+  tools_called: string[];
+  answer: string;
+  projects_in_db: number;
+}
+
+export const testLlmConnection = () => invoke<LlmTestResult>("test_llm_connection");
 
 // ---- Chat session commands ----
 
@@ -248,6 +265,7 @@ export interface AiFillResult {
   priority: string | null;
   promised_to: string | null;
   checklist: string | null;
+  tracker_url: string | null;
 }
 
 export const aiFillTask = (taskId: string) =>

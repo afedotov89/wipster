@@ -1,7 +1,7 @@
 use tauri::State;
 
 use crate::db::connection::DbState;
-use crate::models::task::Task;
+use crate::models::task::{task_from_row, Task, TASK_COLUMNS};
 use crate::services::llm_context;
 
 #[tauri::command]
@@ -29,16 +29,9 @@ pub async fn ai_autocomplete(
             .unwrap_or_else(|_| default_model.to_string());
 
         let task: Task = conn.query_row(
-            "SELECT id, title, project_id, status, priority, energy, due, estimate, time_estimate, tags, \
-             dod, checklist, next_step, return_ref, promised_to, comment, tracker_url, position, completed_at, created_at, updated_at FROM tasks WHERE id = ?1",
+            &format!("SELECT {} FROM tasks WHERE id = ?1", TASK_COLUMNS),
             [&task_id],
-            |row| Ok(Task {
-                id: row.get(0)?, title: row.get(1)?, project_id: row.get(2)?,
-                status: row.get(3)?, priority: row.get(4)?, energy: row.get(5)?, due: row.get(6)?,
-                estimate: row.get(7)?, time_estimate: row.get(8)?, tags: row.get(9)?, dod: row.get(10)?,
-                checklist: row.get(11)?, next_step: row.get(12)?, return_ref: row.get(13)?,
-                promised_to: row.get(14)?, comment: row.get(15)?, tracker_url: row.get(16)?, position: row.get(17)?, completed_at: row.get(18)?, created_at: row.get(19)?, updated_at: row.get(20)?,
-            }),
+            task_from_row,
         ).map_err(|e| format!("Task not found: {}", e))?;
 
         let task_ctx = llm_context::task_context(&conn, &task);

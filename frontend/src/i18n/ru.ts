@@ -4,6 +4,7 @@ const ru = {
 
   // Navigation
   allDoing: "В работе",
+  archive: "Архив",
   projects: "ПРОЕКТЫ",
   settings: "Настройки",
   language: "Язык",
@@ -73,6 +74,13 @@ const ru = {
   contextSaved: "Контекст сохранён",
   noTasksInProgress: "Нет задач в работе. Начните задачу из проекта.",
 
+  // Archive
+  moveToArchive: "В архив",
+  restoreFromArchive: "Вернуть",
+  archiveEmpty: "Архив пуст. Сюда можно убрать задачи, которые делать не планируете, — но вдруг кто-то вспомнит.",
+  archiveHint: "Эти задачи скрыты с доски. Любую можно вернуть обратно в любой момент.",
+  archivedOn: "В архиве с",
+
   // Settings - Appearance
   themeSection: "Тема",
   themeSectionHint: "Выберите настроение для сессии",
@@ -83,6 +91,14 @@ const ru = {
   model: "Модель",
   save: "Сохранить",
   saved: "Сохранено",
+  testConnection: "Протестировать",
+  testRunning: "Проверяем…",
+  testOk: "Связь есть",
+  testFailed: "Не получилось",
+  testToolOk: (name: string) => `Вызов инструмента ${name} прошёл`,
+  testToolMissing: "Модель ответила, но инструмент не вызвала — tool use не работает",
+  testKeyMissing: "Сначала укажите API-ключ",
+  testProjectsInDb: (n: number) => `проектов в базе: ${n}`,
 
   // Settings - Integrations
   integrations: "Интеграции",

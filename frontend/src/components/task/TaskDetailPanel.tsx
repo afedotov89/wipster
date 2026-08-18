@@ -28,6 +28,7 @@ import {
 } from "@mui/material";
 import CloseIcon from "@mui/icons-material/Close";
 import AutoAwesomeIcon from "@mui/icons-material/AutoAwesome";
+import Inventory2OutlinedIcon from "@mui/icons-material/Inventory2Outlined";
 import CheckBoxOutlineBlankIcon from "@mui/icons-material/CheckBoxOutlineBlank";
 import CheckBoxIcon from "@mui/icons-material/CheckBox";
 import { useUiStore } from "@/stores/uiStore";
@@ -248,12 +249,14 @@ function ChecklistSortable({ items, onReorder, onToggle, onRemove, onEditText }:
 
 export default function TaskDetailPanel() {
   const { selectedTaskId, closeDetail } = useUiStore();
-  const { tasks, update } = useTaskStore();
+  const { tasks, archivedTasks, update } = useTaskStore();
   const { projects } = useProjectStore();
   const { refresh } = useHistoryStore();
   const { t, locale } = useI18n();
 
-  const task = tasks.find((t) => t.id === selectedTaskId);
+  const task =
+    tasks.find((t) => t.id === selectedTaskId) ??
+    archivedTasks.find((t) => t.id === selectedTaskId);
 
   const [title, setTitle] = useState("");
   const [dod, setDod] = useState("");
@@ -279,6 +282,7 @@ export default function TaskDetailPanel() {
       if (result.time_estimate) { updates.time_estimate = result.time_estimate; setTimeEstimate(result.time_estimate); }
       if (result.dod) { updates.dod = result.dod; setDod(result.dod); }
       if (result.priority) { updates.priority = result.priority; }
+      if (result.tracker_url) { updates.tracker_url = result.tracker_url; setTrackerUrl(result.tracker_url); }
       if (result.checklist) {
         try {
           const items = JSON.parse(result.checklist);
@@ -383,12 +387,23 @@ export default function TaskDetailPanel() {
   return (
     <Box sx={{ p: 2, display: "flex", flexDirection: "column", gap: 2 }}>
       <Box sx={{ display: "flex", alignItems: "center", justifyContent: "space-between" }}>
-        <Chip
-          label={statusLabel(t, task.status as TaskStatus)}
-          size="small"
-          variant="outlined"
-          color={task.status === "doing" ? "warning" : task.status === "done" ? "success" : "default"}
-        />
+        <Box sx={{ display: "flex", gap: 0.5, alignItems: "center" }}>
+          <Chip
+            label={statusLabel(t, task.status as TaskStatus)}
+            size="small"
+            variant="outlined"
+            color={task.status === "doing" ? "warning" : task.status === "done" ? "success" : "default"}
+          />
+          {task.archived_at && (
+            <Chip
+              icon={<Inventory2OutlinedIcon sx={{ fontSize: 12 }} />}
+              label={t.archive}
+              size="small"
+              variant="outlined"
+              sx={{ opacity: 0.6 }}
+            />
+          )}
+        </Box>
         <Box>
           <IconButton
             size="small"
