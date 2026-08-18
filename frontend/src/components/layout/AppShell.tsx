@@ -8,9 +8,16 @@ import TaskDetailPanel from "@/components/task/TaskDetailPanel";
 import SwapDialog from "@/components/task/SwapDialog";
 import AgentPanel from "@/components/agent/AgentPanel";
 import { useUiStore } from "@/stores/uiStore";
-import { TITLEBAR_HEIGHT } from "@/utils/constants";
 
-export default function AppShell() {
+interface Props {
+  /**
+   * Space to leave for the macOS titlebar. Zero when something else already
+   * fills that band (the update banner), so it is not reserved twice.
+   */
+  titlebarInset: number;
+}
+
+export default function AppShell({ titlebarInset }: Props) {
   const { view, detailOpen, closeDetail } = useUiStore();
 
   const handleBackgroundClick = (e: React.MouseEvent) => {
@@ -23,7 +30,7 @@ export default function AppShell() {
   };
 
   return (
-    <Box sx={{ display: "flex", height: "100vh", overflow: "hidden" }}>
+    <Box sx={{ display: "flex", height: "100%", overflow: "hidden" }}>
       {/*
         `titleBarStyle: "Overlay"` lets the webview fill the whole window, so the
         band behind the traffic lights is painted by the app instead of the system
@@ -31,9 +38,11 @@ export default function AppShell() {
         lights) and carries its own spacer; the content column gets a matching
         drag strip over the theme background.
       */}
-      <Sidebar />
+      <Sidebar titlebarInset={titlebarInset} />
       <Box sx={{ flex: 1, display: "flex", flexDirection: "column", overflow: "hidden" }}>
-        <Box data-tauri-drag-region sx={{ height: TITLEBAR_HEIGHT, flexShrink: 0 }} />
+        {titlebarInset > 0 && (
+          <Box data-tauri-drag-region sx={{ height: titlebarInset, flexShrink: 0 }} />
+        )}
         <Box sx={{ display: "flex", flex: 1, minHeight: 0, overflow: "hidden" }}>
           <Box sx={{ flex: 1, overflow: "auto" }} onClick={handleBackgroundClick}>
             {view === "settings" ? (

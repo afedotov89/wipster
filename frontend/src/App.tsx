@@ -7,9 +7,9 @@ import AppShell from "./components/layout/AppShell";
 import { useUndoRedo } from "./hooks/useUndoRedo";
 import { useAutoUpdater } from "./hooks/useAutoUpdater";
 import { useI18n } from "./i18n";
+import { TITLEBAR_HEIGHT, TRAFFIC_LIGHTS_WIDTH } from "./utils/constants";
 
-function UpdateBanner() {
-  const { available, version, downloading, progress, ready, downloadAndInstall, installAndRelaunch } = useAutoUpdater();
+function UpdateBanner({ available, version, downloading, progress, ready, downloadAndInstall, installAndRelaunch }: ReturnType<typeof useAutoUpdater>) {
   const { locale } = useI18n();
 
   if (!available) return null;
@@ -17,8 +17,11 @@ function UpdateBanner() {
   return (
     <Box
       sx={{
-        px: 2,
+        pl: `${TRAFFIC_LIGHTS_WIDTH}px`,
+        pr: 2,
         py: 0.75,
+        minHeight: TITLEBAR_HEIGHT,
+        flexShrink: 0,
         bgcolor: "primary.main",
         color: "white",
         display: "flex",
@@ -60,11 +63,16 @@ function UpdateBanner() {
 
 function AppContent() {
   useUndoRedo();
+  const updater = useAutoUpdater();
+  // When the banner is showing it occupies the titlebar band itself, so the
+  // shell must not reserve that space a second time.
   return (
-    <>
-      <UpdateBanner />
-      <AppShell />
-    </>
+    <Box sx={{ display: "flex", flexDirection: "column", height: "100vh", overflow: "hidden" }}>
+      <UpdateBanner {...updater} />
+      <Box sx={{ flex: 1, minHeight: 0 }}>
+        <AppShell titlebarInset={updater.available ? 0 : TITLEBAR_HEIGHT} />
+      </Box>
+    </Box>
   );
 }
 

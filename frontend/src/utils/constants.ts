@@ -33,3 +33,10 @@ export const WIP_LIMIT = 3;
 
 /** Height of the macOS titlebar the webview draws under in "Overlay" mode. */
 export const TITLEBAR_HEIGHT = 28;
+
+/**
+ * Horizontal space the traffic lights occupy. Anything drawn in the titlebar
+ * band — which in "Overlay" mode means anything at the top of the window — has
+ * to start after this or it ends up underneath the close/minimise/zoom buttons.
+ */
+export const TRAFFIC_LIGHTS_WIDTH = 80;

@@ -25,10 +25,9 @@ import { useTaskStore } from "@/stores/taskStore";
 import { useUiStore } from "@/stores/uiStore";
 import { useI18n } from "@/i18n";
 import { getProjectTaskCounts, type ProjectTaskCounts } from "@/utils/tauri";
-import { TITLEBAR_HEIGHT } from "@/utils/constants";
 import ProjectAppearancePicker, { getProjectIcon } from "./ProjectAppearancePicker";
 
-export default function Sidebar() {
+export default function Sidebar({ titlebarInset }: { titlebarInset: number }) {
   const { projects, selectedProjectId, load, select, add, update, remove } =
     useProjectStore();
   const { view, setView } = useUiStore();
@@ -131,7 +130,9 @@ export default function Sidebar() {
       }}
     >
       {/* Clears the traffic lights, which float over the sidebar in Overlay mode */}
-      <Box data-tauri-drag-region sx={{ height: TITLEBAR_HEIGHT, flexShrink: 0 }} />
+      {titlebarInset > 0 && (
+        <Box data-tauri-drag-region sx={{ height: titlebarInset, flexShrink: 0 }} />
+      )}
 
       <Box sx={{ p: 2, pt: 1, pb: 1 }}>
         <Typography variant="subtitle2" color="text.secondary" sx={{ mb: 1 }}>
