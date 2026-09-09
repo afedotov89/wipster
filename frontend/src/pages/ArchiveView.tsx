@@ -7,10 +7,10 @@ import { useTaskStore } from "@/stores/taskStore";
 import { useProjectStore } from "@/stores/projectStore";
 import { useUiStore } from "@/stores/uiStore";
 import { useHistoryStore } from "@/stores/historyStore";
-import { PRIORITY_COLORS } from "@/utils/constants";
+import { HEADER_BAND_HEIGHT, PRIORITY_COLORS } from "@/utils/constants";
 import { useI18n } from "@/i18n";
 import type { Priority } from "@/utils/tauri";
-import { getProjectIcon } from "@/components/layout/ProjectAppearancePicker";
+import ProjectIcon from "@/components/layout/ProjectIcon";
 
 export default function ArchiveView() {
   const { archivedTasks, loadArchived, setArchived, remove } = useTaskStore();
@@ -37,8 +37,8 @@ export default function ArchiveView() {
   };
 
   return (
-    <Box sx={{ p: 3, maxWidth: 720 }}>
-      <Box sx={{ display: "flex", alignItems: "center", gap: 1.5, mb: 0.5 }}>
+    <Box sx={{ px: 3, pb: 3, maxWidth: 720 }}>
+      <Box sx={{ height: HEADER_BAND_HEIGHT, display: "flex", alignItems: "center", gap: 1.5 }}>
         <Inventory2OutlinedIcon sx={{ fontSize: 24, opacity: 0.6 }} />
         <Typography variant="h6" sx={{ fontWeight: 700 }}>
           {t.archive}
@@ -100,10 +100,7 @@ export default function ArchiveView() {
                     <Box sx={{ display: "flex", alignItems: "center", gap: 0.75, mt: 0.5, flexWrap: "wrap" }}>
                       {project && (
                         <Chip
-                          icon={(() => {
-                            const Icon = getProjectIcon(project.icon);
-                            return <Icon sx={{ fontSize: 12, color: project.color || undefined }} />;
-                          })()}
+                          icon={<ProjectIcon project={project} size={12} />}
                           label={project.name}
                           size="small"
                           variant="outlined"

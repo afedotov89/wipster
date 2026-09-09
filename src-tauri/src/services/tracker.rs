@@ -71,6 +71,41 @@ pub fn extract_issue_key(input: &str) -> Option<String> {
 }
 
 /// Find all tracker issue keys/URLs in a text
+/// Is this whole string nothing but tracker references — a link, an issue key,
+/// or several of them — with no words of its own?
+///
+/// Used to tell a placeholder title ("https://tracker.yandex.ru/QUEUE-1") from a
+/// real one that merely mentions a ticket ("Оценить QUEUE-1 до пятницы"). The
+/// match is deliberately stricter than [`extract_issue_key`], which accepts any
+/// short hyphenated word and would happily read "Кэш-промт" as an issue key.
+pub fn is_bare_issue_reference(text: &str) -> bool {
+    let mut saw_one = false;
+    for token in text.split_whitespace() {
+        if !is_issue_reference(token) {
+            return false;
+        }
+        saw_one = true;
+    }
+    saw_one
+}
+
+/// One token that can only be a tracker reference: an issue URL, or a `KEY-123`
+/// code (uppercase Latin queue, digits after the dash).
+fn is_issue_reference(token: &str) -> bool {
+    let token = token.trim_matches(|c: char| c.is_ascii_punctuation() && c != '-' && c != '/' && c != ':');
+    if token.contains("tracker.yandex.") {
+        return extract_issue_key(token).is_some();
+    }
+    let Some((queue, number)) = token.split_once('-') else {
+        return false;
+    };
+    !queue.is_empty()
+        && queue.starts_with(|c: char| c.is_ascii_uppercase())
+        && queue.chars().all(|c| c.is_ascii_uppercase() || c.is_ascii_digit())
+        && !number.is_empty()
+        && number.chars().all(|c| c.is_ascii_digit())
+}
+
 pub fn find_tracker_refs(text: &str) -> Vec<String> {
     let mut keys = Vec::new();
 
@@ -219,4 +254,33 @@ pub async fn enrich_context(
     }
 
     context_parts.join("\n")
+}
+
+#[cfg(test)]
+mod bare_reference_tests {
+    use super::is_bare_issue_reference;
+
+    #[test]
+    fn a_link_or_key_on_its_own_is_bare() {
+        assert!(is_bare_issue_reference("https://tracker.yandex.ru/RAGSERVIS-226"));
+        assert!(is_bare_issue_reference("  RAGSERVIS-226  "));
+        assert!(is_bare_issue_reference("RAGSERVIS-226 https://tracker.yandex.ru/FLEX-1"));
+    }
+
+    #[test]
+    fn a_title_with_words_of_its_own_is_not() {
+        assert!(!is_bare_issue_reference("Оценить RAGSERVIS-226"));
+        assert!(!is_bare_issue_reference("RAGSERVIS-226 — оценка"));
+        assert!(!is_bare_issue_reference(""));
+        assert!(!is_bare_issue_reference("   "));
+    }
+
+    /// The trap the loose key parser falls into: ordinary hyphenated words.
+    #[test]
+    fn hyphenated_words_are_not_issue_keys() {
+        assert!(!is_bare_issue_reference("Кэш-промт"));
+        assert!(!is_bare_issue_reference("что-то"));
+        assert!(!is_bare_issue_reference("e-mail"));
+        assert!(!is_bare_issue_reference("UI-обзор"));
+    }
 }

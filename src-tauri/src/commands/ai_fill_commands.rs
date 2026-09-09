@@ -6,6 +6,9 @@ use crate::services::llm_context;
 
 #[derive(serde::Serialize, serde::Deserialize)]
 pub struct AiFillResult {
+    /// Only set when the old title was a bare tracker reference and the ticket
+    /// gave a real subject to replace it with.
+    pub title: Option<String>,
     pub time_estimate: Option<String>,
     pub dod: Option<String>,
     pub priority: Option<String>,
@@ -19,7 +22,7 @@ pub async fn ai_fill_task(
     db: State<'_, DbState>,
     task_id: String,
 ) -> Result<AiFillResult, String> {
-    let (provider, api_key, model, system_prompt, tracker_url_fill) = {
+    let (provider, api_key, model, system_prompt, tracker_url_fill, title_is_placeholder) = {
         let conn = db.0.lock().map_err(|e| e.to_string())?;
 
         let provider = conn
@@ -60,11 +63,17 @@ pub async fn ai_fill_task(
             None
         };
 
+        // A title that is only a link says nothing about the work: the ticket's
+        // own subject replaces it, and the link lives on in tracker_url.
+        let title_is_placeholder =
+            crate::services::tracker::is_bare_issue_reference(&task.title);
+
         // Gather examples: completed tasks from same project with filled fields
         let examples = gather_examples(&conn, task.project_id.as_deref());
 
         // Determine which fields need filling
         let mut empty_fields = Vec::new();
+        if title_is_placeholder { empty_fields.push("title"); }
         if task.time_estimate.as_ref().map(|s| s.is_empty()).unwrap_or(true) { empty_fields.push("time_estimate"); }
         if task.dod.as_ref().map(|s| s.is_empty()).unwrap_or(true) { empty_fields.push("dod"); }
         if task.priority.is_none() { empty_fields.push("priority"); }
@@ -73,7 +82,7 @@ pub async fn ai_fill_task(
 
         if empty_fields.is_empty() {
             return Ok(AiFillResult {
-                time_estimate: None, dod: None, priority: None,
+                title: None, time_estimate: None, dod: None, priority: None,
                 promised_to: None, checklist: None, tracker_url: tracker_url_fill,
             });
         }
@@ -93,6 +102,7 @@ You have read-only tools to gather more context. Use them BEFORE answering when 
 
 After gathering context, respond with ONLY valid JSON as your final message, no markdown:
 {{
+  "title": "the task's real subject (or null)",
   "time_estimate": "e.g. 30м, 1ч, 2ч, 4ч, 1д (or null)",
   "dod": "one short criterion, max 15 words (or null)",
   "priority": "p0|p1|p2|p3 (or null)",
@@ -103,6 +113,7 @@ After gathering context, respond with ONLY valid JSON as your final message, no 
 Rules:
 - BE BRIEF. Every value must be as short as possible
 - Only fill fields listed in empty_fields, set others to null
+- title: only when listed. The current title is nothing but a tracker link, so read the issue and take its summary: keep its wording and language, drop the issue code and any queue prefix, max 12 words. If the issue cannot be read, return null — never build a title out of the URL itself
 - promised_to: ALWAYS null
 - dod: one sentence, max 15 words
 - checklist: max 4 steps, each max 8 words
@@ -113,7 +124,7 @@ Rules:
             fields = empty_fields.join(", "),
         );
 
-        (provider, api_key, model, system_prompt, tracker_url_fill)
+        (provider, api_key, model, system_prompt, tracker_url_fill, title_is_placeholder)
     };
 
     // Run a tool-use loop with a read-only toolset so the model can pull in
@@ -146,7 +157,10 @@ Rules:
         _ => None,
     };
 
+    let title = accept_title(title_is_placeholder, raw["title"].as_str());
+
     let result = AiFillResult {
+        title,
         time_estimate: raw["time_estimate"].as_str().filter(|s| !s.is_empty()).map(|s| s.to_string()),
         dod: raw["dod"].as_str().filter(|s| !s.is_empty()).map(|s| s.to_string()),
         priority: raw["priority"].as_str().filter(|s| !s.is_empty()).map(|s| s.to_string()),
@@ -156,6 +170,20 @@ Rules:
     };
 
     Ok(result)
+}
+
+/// The model gets one job on the title and no licence to rename anything else:
+/// a title is taken only when we asked for one, and only when it reads as a
+/// subject rather than handing the same link back.
+fn accept_title(asked_for: bool, proposed: Option<&str>) -> Option<String> {
+    if !asked_for {
+        return None;
+    }
+    proposed
+        .map(str::trim)
+        .filter(|t| !t.is_empty() && t.chars().count() <= 200)
+        .filter(|t| !crate::services::tracker::is_bare_issue_reference(t))
+        .map(str::to_string)
 }
 
 fn gather_examples(conn: &rusqlite::Connection, project_id: Option<&str>) -> String {
@@ -208,5 +236,36 @@ fn gather_examples(conn: &rusqlite::Connection, project_id: Option<&str>) -> Str
         String::new()
     } else {
         format!("## Completed tasks for reference\n{}", examples.join("\n"))
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::accept_title;
+
+    #[test]
+    fn a_title_the_user_wrote_is_never_touched() {
+        assert_eq!(accept_title(false, Some("Совсем другой заголовок")), None);
+    }
+
+    #[test]
+    fn a_placeholder_title_takes_the_ticket_subject() {
+        assert_eq!(
+            accept_title(true, Some("  Оценка интеграции с Яндекс ID  ")),
+            Some("Оценка интеграции с Яндекс ID".to_string()),
+        );
+    }
+
+    #[test]
+    fn the_same_link_back_is_not_a_title() {
+        assert_eq!(accept_title(true, Some("RAGSERVIS-226")), None);
+        assert_eq!(accept_title(true, Some("https://tracker.yandex.ru/RAGSERVIS-226")), None);
+    }
+
+    #[test]
+    fn nothing_useful_leaves_the_title_alone() {
+        assert_eq!(accept_title(true, None), None);
+        assert_eq!(accept_title(true, Some("   ")), None);
+        assert_eq!(accept_title(true, Some(&"я".repeat(201))), None);
     }
 }

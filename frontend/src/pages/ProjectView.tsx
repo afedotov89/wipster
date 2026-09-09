@@ -6,7 +6,8 @@ import { useProjectStore } from "@/stores/projectStore";
 import { useTaskStore } from "@/stores/taskStore";
 import { useUiStore } from "@/stores/uiStore";
 import { useI18n } from "@/i18n";
-import { getProjectIcon } from "@/components/layout/ProjectAppearancePicker";
+import ProjectIcon from "@/components/layout/ProjectIcon";
+import { HEADER_BAND_HEIGHT } from "@/utils/constants";
 
 export default function ProjectView() {
   const { projects, selectedProjectId } = useProjectStore();
@@ -58,8 +59,8 @@ export default function ProjectView() {
 
   return (
     <Box sx={{ display: "flex", flexDirection: "column", height: "100%" }}>
-      <Box sx={{ px: 2, pt: 2, pb: 0, display: "flex", alignItems: "center", gap: 1 }}>
-        {(() => { const Icon = getProjectIcon(project.icon); return <Icon sx={{ color: project.color || undefined, fontSize: 28 }} />; })()}
+      <Box sx={{ px: 2, height: HEADER_BAND_HEIGHT, flexShrink: 0, display: "flex", alignItems: "center", gap: 1 }}>
+        <ProjectIcon project={project} size={28} />
         <Typography variant="h6" sx={{ fontWeight: 700 }}>
           {project.name}
         </Typography>

@@ -38,7 +38,7 @@ export default function SwapDialog() {
       <DialogTitle sx={{ fontSize: 16 }}>{t.wipLimitReached}</DialogTitle>
       <DialogContent>
         <Typography variant="body2" color="text.secondary" sx={{ mb: 2 }}>
-          {t.wipLimitDescription}
+          {t.wipLimitDescription(doingTasks.length)}
         </Typography>
         <List dense>
           {doingTasks.map((task) => (

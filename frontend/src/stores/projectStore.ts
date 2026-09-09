@@ -8,8 +8,8 @@ interface ProjectState {
   loading: boolean;
   load: () => Promise<void>;
   select: (id: string | null) => void;
-  add: (name: string) => Promise<Project>;
-  update: (id: string, input: { name?: string; icon?: string; color?: string; order?: number }) => Promise<void>;
+  add: (name: string, parentId?: string) => Promise<Project>;
+  update: (id: string, input: api.UpdateProjectInput) => Promise<void>;
   remove: (id: string) => Promise<void>;
 }
 
@@ -36,8 +36,8 @@ export const useProjectStore = create<ProjectState>((set, get) => ({
     if (id) localStorage.setItem("wipster-last-project", id);
   },
 
-  add: async (name) => {
-    const project = await api.createProject(name);
+  add: async (name, parentId) => {
+    const project = await api.createProject(name, parentId);
     set((s) => ({ projects: [...s.projects, project] }));
     return project;
   },

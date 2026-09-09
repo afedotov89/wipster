@@ -48,7 +48,7 @@ describe("projectStore", () => {
 
   it("removes a project and deselects if selected", async () => {
     useProjectStore.setState({
-      projects: [{ id: "p1", name: "A", icon: null, color: null, order: 0, created_at: "", updated_at: "" }],
+      projects: [{ id: "p1", name: "A", parent_id: null, icon: null, icon_image: null, icon_mono: false, color: null, order: 0, created_at: "", updated_at: "" }],
       selectedProjectId: "p1",
     });
     mockedInvoke.mockResolvedValue(undefined);

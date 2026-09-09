@@ -8,26 +8,27 @@ use crate::services::undo_redo;
 pub fn undo_last(db: State<'_, DbState>) -> Result<Option<ChangeLogEntry>, String> {
     let conn = db.0.lock().map_err(|e| e.to_string())?;
 
-    let entry = undo_redo::get_last_undoable(&conn).map_err(|e| e.to_string())?;
+    let batch = undo_redo::get_undo_batch(&conn).map_err(|e| e.to_string())?;
 
-    if let Some(ref e) = entry {
-        undo_redo::apply_undo(&conn, e)?;
+    for entry in &batch {
+        undo_redo::apply_undo(&conn, entry)?;
     }
 
-    Ok(entry)
+    // The newest entry stands for the action in the history list.
+    Ok(batch.into_iter().next())
 }
 
 #[tauri::command]
 pub fn redo_last(db: State<'_, DbState>) -> Result<Option<ChangeLogEntry>, String> {
     let conn = db.0.lock().map_err(|e| e.to_string())?;
 
-    let entry = undo_redo::get_last_redoable(&conn).map_err(|e| e.to_string())?;
+    let batch = undo_redo::get_redo_batch(&conn).map_err(|e| e.to_string())?;
 
-    if let Some(ref e) = entry {
-        undo_redo::apply_redo(&conn, e)?;
+    for entry in &batch {
+        undo_redo::apply_redo(&conn, entry)?;
     }
 
-    Ok(entry)
+    Ok(batch.into_iter().last())
 }
 
 #[tauri::command]

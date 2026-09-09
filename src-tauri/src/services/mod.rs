@@ -6,3 +6,4 @@ pub mod tracker;
 pub mod tracker_auth;
 pub mod undo_redo;
 pub mod wip_guard;
+pub mod project_tree;

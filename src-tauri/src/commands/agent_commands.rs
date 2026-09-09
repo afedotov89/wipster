@@ -1,4 +1,7 @@
-use tauri::State;
+use std::panic::AssertUnwindSafe;
+
+use futures_util::FutureExt;
+use tauri::{AppHandle, Emitter, State};
 
 use crate::db::connection::DbState;
 use crate::services::logger;
@@ -43,9 +46,15 @@ fn get_setting_value(conn: &rusqlite::Connection, key: &str) -> Option<String> {
     .ok()
 }
 
+/// Run the agent for one user message.
+///
+/// `run_id` comes from the UI: it tags the progress events this run emits and
+/// is the handle [`agent_cancel`] uses to stop it.
 #[tauri::command]
 pub async fn agent_chat(
+    app: AppHandle,
     db: State<'_, DbState>,
+    run_id: String,
     message: String,
     focused_task_id: Option<String>,
     history: Option<Vec<(String, String)>>,
@@ -100,11 +109,34 @@ pub async fn agent_chat(
     };
 
     let hist = history.unwrap_or_default();
-    let result = agent::chat(
-        &provider, &api_key, &model, &message, &hist,
-        &memory, &focused_task_context,
-        &db.0,
-    ).await?;
+
+    let reporter = {
+        let app = app.clone();
+        agent::ProgressReporter::new(run_id.clone(), move |step| {
+            let _ = app.emit("agent-progress", step);
+        })
+    };
+    let cancelled = agent::register_run(&run_id);
+
+    // Three ways out, and every one of them settles the promise the UI is
+    // waiting on: the answer, the user pressing stop, or a panic that would
+    // otherwise kill this task and hang the panel forever.
+    let outcome = tokio::select! {
+        finished = AssertUnwindSafe(agent::chat(
+            &provider, &api_key, &model, &message, &hist,
+            &memory, &focused_task_context,
+            &db.0, &reporter,
+        )).catch_unwind() => finished.unwrap_or_else(|_| {
+            logger::log("error", "[agent_chat] aborted by a panic (see the [panic] entry above)");
+            Err("INTERNAL_ERROR".to_string())
+        }),
+        _ = cancelled.notified() => {
+            logger::log("info", &format!("[agent_chat] run {} stopped by the user", run_id));
+            Err(agent::CANCELLED.to_string())
+        }
+    };
+    agent::finish_run(&run_id);
+    let result = outcome?;
 
     crate::services::logger::log("info", &format!("[agent_chat] done: {} tool calls, {} pending, text len: {}",
         result.tool_calls.len(), result.pending_confirmations.len(), result.text.len()));
@@ -199,6 +231,17 @@ pub async fn test_llm_connection(db: State<'_, DbState>) -> Result<LlmTestResult
     })
 }
 
+/// Stop a running [`agent_chat`]. Returns whether that run was still live.
+#[tauri::command]
+pub fn agent_cancel(run_id: String) -> bool {
+    let was_running = agent::cancel_run(&run_id);
+    logger::log(
+        "info",
+        &format!("[agent] stop requested for run {} (running: {})", run_id, was_running),
+    );
+    was_running
+}
+
 /// Execute confirmed dangerous tools
 #[tauri::command]
 pub async fn agent_confirm(
@@ -208,7 +251,7 @@ pub async fn agent_confirm(
     let mut results = Vec::new();
     for tc in &tool_calls {
         let result = agent::execute_confirmed_tool(&tc.tool_name, &tc.arguments, &db.0).await;
-        crate::services::logger::log("info", &format!("[agent] confirmed tool {} -> {}", tc.tool_name, &result[..result.len().min(200)]));
+        crate::services::logger::log("info", &format!("[agent] confirmed tool {} -> {}", tc.tool_name, crate::services::logger::snippet(&result, 200)));
         results.push(agent::ToolCallLog {
             tool_name: tc.tool_name.clone(),
             arguments: tc.arguments.clone(),

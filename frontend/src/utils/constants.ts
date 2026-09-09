@@ -29,7 +29,17 @@ export const estimateLabel = (t: Translations, e: Estimate): string =>
 export const PRIORITIES: Priority[] = ["p0", "p1", "p2", "p3"];
 export const ESTIMATES: Estimate[] = ["s", "m", "l"];
 
-export const WIP_LIMIT = 3;
+/**
+ * Cap on tasks in Doing before the user changes it in Settings. The live value
+ * lives in the settings store; this is only the value shown until it loads and
+ * the fallback when the backend cannot be reached. Keep both in step with
+ * `wip_guard::DEFAULT_WIP_LIMIT`.
+ */
+export const DEFAULT_WIP_LIMIT = 3;
+
+/** Guard rails the settings control obeys, mirroring `wip_guard`. */
+export const MIN_WIP_LIMIT = 1;
+export const MAX_WIP_LIMIT = 20;
 
 /** Height of the macOS titlebar the webview draws under in "Overlay" mode. */
 export const TITLEBAR_HEIGHT = 28;
@@ -40,3 +50,10 @@ export const TITLEBAR_HEIGHT = 28;
  * to start after this or it ends up underneath the close/minimise/zoom buttons.
  */
 export const TRAFFIC_LIGHTS_WIDTH = 80;
+
+/**
+ * Height of the band each column puts its title in, directly under the
+ * titlebar. Both the sidebar and the page centre their heading inside it, so
+ * the two titles sit on one line no matter how far apart their font sizes are.
+ */
+export const HEADER_BAND_HEIGHT = 44;

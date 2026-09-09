@@ -1,10 +1,18 @@
 import { invoke } from "@tauri-apps/api/core";
+import { listen } from "@tauri-apps/api/event";
 
 // ---- Types ----
 
 export interface Project {
   id: string;
   name: string;
+  /// Parent project, or null for a top-level one. The data model allows any
+  /// depth; the sidebar shows one level of nesting.
+  parent_id: string | null;
+  /// A user's own icon as a data URL; when set it replaces the built-in one.
+  icon_image: string | null;
+  /// That icon is a single-colour glyph and takes the project's colour.
+  icon_mono: boolean;
   icon: string | null;
   color: string | null;
   order: number;
@@ -77,11 +85,32 @@ export interface MoveTaskResult {
 
 export const listProjects = () => invoke<Project[]>("list_projects");
 
-export const createProject = (name: string) =>
-  invoke<Project>("create_project", { input: { name } });
+export const createProject = (name: string, parentId?: string) =>
+  invoke<Project>("create_project", { input: { name, parent_id: parentId ?? null } });
 
-export const updateProject = (id: string, input: { name?: string; icon?: string; color?: string; order?: number }) =>
+export interface UpdateProjectInput {
+  name?: string;
+  icon?: string;
+  /// null drops the custom icon and falls back to the built-in one.
+  icon_image?: string | null;
+  icon_mono?: boolean;
+  color?: string;
+  order?: number;
+  /// null promotes the project to the top level; omit to leave the parent alone.
+  parent_id?: string | null;
+}
+
+export const updateProject = (id: string, input: UpdateProjectInput) =>
   invoke<Project>("update_project", { id, input });
+
+/** What deleting a project would take with it. */
+export interface ProjectDeleteImpact {
+  sub_projects: number;
+  tasks: number;
+}
+
+export const projectDeleteImpact = (id: string) =>
+  invoke<ProjectDeleteImpact>("project_delete_impact", { id });
 
 export const deleteProject = (id: string) =>
   invoke<void>("delete_project", { id });
@@ -145,6 +174,13 @@ export const getTaskContexts = (taskId: string) =>
 
 // ---- Settings commands ----
 
+/** How many tasks may sit in Doing at once. */
+export const getWipLimit = () => invoke<number>("get_wip_limit");
+
+/** Store a new limit; resolves to the value the backend actually kept. */
+export const setWipLimit = (limit: number) => invoke<number>("set_wip_limit", { limit });
+
+
 export const getSetting = (key: string) =>
   invoke<string | null>("get_setting", { key });
 
@@ -171,8 +207,31 @@ export interface AgentResponse {
   continuation: string | null;
 }
 
-export const agentChat = (message: string, focusedTaskId?: string, history?: [string, string][]) =>
-  invoke<AgentResponse>("agent_chat", { message, focusedTaskId, history });
+/// A step the agent is taking right now, streamed while `agentChat` is in flight.
+export interface AgentProgress {
+  run_id: string;
+  seq: number;
+  phase: "thinking" | "tool";
+  tool: string | null;
+  variant: string | null;
+  detail: string | null;
+}
+
+/// Error text a stopped run rejects with - not a failure, so it is never shown.
+export const AGENT_CANCELLED = "AGENT_CANCELLED";
+
+export const agentChat = (
+  runId: string,
+  message: string,
+  focusedTaskId?: string,
+  history?: [string, string][],
+) => invoke<AgentResponse>("agent_chat", { runId, message, focusedTaskId, history });
+
+/// Stop a run started with the same id. Resolves to false if it already finished.
+export const agentCancel = (runId: string) => invoke<boolean>("agent_cancel", { runId });
+
+export const onAgentProgress = (handler: (step: AgentProgress) => void) =>
+  listen<AgentProgress>("agent-progress", (e) => handler(e.payload));
 
 export interface LlmTestResult {
   provider: string;
@@ -254,12 +313,18 @@ export const trackerStartAuth = () => invoke<DeviceAuthStart>("tracker_start_aut
 export const trackerPollToken = () => invoke<string>("tracker_poll_token");
 export const trackerStatus = () => invoke<boolean>("tracker_status");
 
+/** Is this text nothing but a tracker link or issue key? */
+export const isBareTrackerReference = (text: string) =>
+  invoke<boolean>("is_bare_tracker_reference", { text });
+
 export const reorderTasks = (taskIds: string[]) =>
   invoke<void>("reorder_tasks", { taskIds });
 
 // ---- AI Fill ----
 
 export interface AiFillResult {
+  /// Set only when the title was a bare tracker link and the ticket named the work.
+  title: string | null;
   time_estimate: string | null;
   dod: string | null;
   priority: string | null;

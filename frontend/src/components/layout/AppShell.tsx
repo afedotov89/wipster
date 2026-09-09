@@ -1,5 +1,8 @@
 import { Box } from "@mui/material";
+import { DndContext, DragOverlay, closestCenter } from "@dnd-kit/core";
 import Sidebar from "./Sidebar";
+import TaskCard from "@/components/kanban/TaskCard";
+import { useBoardDnd } from "@/hooks/useBoardDnd";
 import ProjectView from "@/pages/ProjectView";
 import AllDoingPage from "@/pages/AllDoingView";
 import ArchiveView from "@/pages/ArchiveView";
@@ -19,6 +22,9 @@ interface Props {
 
 export default function AppShell({ titlebarInset }: Props) {
   const { view, detailOpen, closeDetail } = useUiStore();
+  // One drag context around the sidebar and the board, so a task can be dragged
+  // out of a column and onto any project.
+  const { sensors, activeTask, onDragStart, onDragEnd } = useBoardDnd();
 
   const handleBackgroundClick = (e: React.MouseEvent) => {
     if (!detailOpen) return;
@@ -30,6 +36,12 @@ export default function AppShell({ titlebarInset }: Props) {
   };
 
   return (
+    <DndContext
+      sensors={sensors}
+      collisionDetection={closestCenter}
+      onDragStart={onDragStart}
+      onDragEnd={onDragEnd}
+    >
     <Box sx={{ display: "flex", height: "100%", overflow: "hidden" }}>
       {/*
         `titleBarStyle: "Overlay"` lets the webview fill the whole window, so the
@@ -72,5 +84,7 @@ export default function AppShell({ titlebarInset }: Props) {
       <SwapDialog />
       <AgentPanel />
     </Box>
+    <DragOverlay>{activeTask ? <TaskCard task={activeTask} onMove={() => {}} /> : null}</DragOverlay>
+    </DndContext>
   );
 }

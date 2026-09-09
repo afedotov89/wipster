@@ -2,7 +2,10 @@ use reqwest::Client;
 use rusqlite::Connection;
 use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};
-use std::sync::Mutex;
+use std::collections::HashMap;
+use std::sync::atomic::{AtomicUsize, Ordering};
+use std::sync::{Arc, Mutex, OnceLock};
+use tokio::sync::Notify;
 
 // ---- Public types ----
 
@@ -27,6 +30,163 @@ pub struct AgentResponse {
     pub pending_confirmations: Vec<PendingToolCall>,
     /// Opaque state to resume the loop after confirmation
     pub continuation: Option<String>,
+}
+
+// ---- Live progress ----
+
+/// One step of a run, pushed to the UI while the agent is still working.
+///
+/// Only the raw facts travel: the tool that is running and a short hint pulled
+/// from its arguments. Wording and localisation belong to the frontend.
+#[derive(Debug, Clone, Serialize)]
+pub struct AgentProgress {
+    pub run_id: String,
+    /// Monotonic per run, so the UI can order and de-duplicate events.
+    pub seq: usize,
+    /// `thinking` — waiting on the model; `tool` — a tool is executing.
+    pub phase: String,
+    pub tool: Option<String>,
+    /// Set when one tool name covers two user-visible actions (archive/restore).
+    pub variant: Option<String>,
+    /// Task title, issue key, search query — whatever names the step.
+    pub detail: Option<String>,
+}
+
+type ProgressSink = dyn Fn(AgentProgress) + Send + Sync;
+
+/// Sink for [`AgentProgress`] events, tagged with the run they belong to.
+pub struct ProgressReporter {
+    run_id: String,
+    sink: Box<ProgressSink>,
+    seq: AtomicUsize,
+}
+
+impl ProgressReporter {
+    pub fn new(
+        run_id: impl Into<String>,
+        sink: impl Fn(AgentProgress) + Send + Sync + 'static,
+    ) -> Self {
+        Self { run_id: run_id.into(), sink: Box::new(sink), seq: AtomicUsize::new(0) }
+    }
+
+    fn emit(&self, phase: &str, tool: Option<&str>, variant: Option<&str>, detail: Option<String>) {
+        (self.sink)(AgentProgress {
+            run_id: self.run_id.clone(),
+            seq: self.seq.fetch_add(1, Ordering::Relaxed),
+            phase: phase.to_string(),
+            tool: tool.map(str::to_string),
+            variant: variant.map(str::to_string),
+            detail,
+        });
+    }
+
+    /// The model is composing its next move.
+    pub fn thinking(&self) {
+        self.emit("thinking", None, None, None);
+    }
+
+    /// A tool is about to run; `db` is only read to name it.
+    pub fn tool(&self, name: &str, args: &Value, db: &Mutex<Connection>) {
+        let (variant, detail) = progress_hint(name, args, db);
+        self.emit("tool", Some(name), variant, detail);
+    }
+}
+
+/// Longest hint shown on a progress line — more is noise in a 420px panel.
+const HINT_MAX_BYTES: usize = 80;
+
+/// Name a step from its arguments: the task's title, the issue key, the query.
+fn progress_hint(
+    name: &str,
+    args: &Value,
+    db: &Mutex<Connection>,
+) -> (Option<&'static str>, Option<String>) {
+    let arg = |key: &str| {
+        args[key]
+            .as_str()
+            .map(str::trim)
+            .filter(|v| !v.is_empty())
+            .map(str::to_string)
+    };
+    let task_title = || {
+        let id = args["task_id"].as_str()?;
+        let conn = db.lock().ok()?;
+        conn.query_row("SELECT title FROM tasks WHERE id = ?1", [id], |r| {
+            r.get::<_, String>(0)
+        })
+        .ok()
+    };
+
+    let (variant, detail) = match name {
+        "create_task" => (None, arg("title")),
+        "update_task" | "move_task" | "delete_task" | "get_task" => (None, task_title()),
+        "set_task_archived" => (
+            if args["archived"].as_bool() == Some(false) { Some("restore") } else { None },
+            task_title(),
+        ),
+        "search_tasks" => (None, arg("query")),
+        "read_tracker_issue" => (
+            None,
+            arg("issue_key")
+                .map(|k| crate::services::tracker::extract_issue_key(&k).unwrap_or(k)),
+        ),
+        "create_tracker_issue" => (None, arg("summary")),
+        "remember" => (None, arg("fact")),
+        _ => (None, None),
+    };
+
+    let detail = detail.map(|d| {
+        let cut = crate::services::logger::snippet(&d, HINT_MAX_BYTES);
+        if cut.len() < d.len() {
+            format!("{}\u{2026}", cut.trim_end())
+        } else {
+            d
+        }
+    });
+    (variant, detail)
+}
+
+// ---- Cancellation ----
+
+/// Error text returned when the user stops a run; the UI matches on it and
+/// stays quiet instead of reporting a failure.
+pub const CANCELLED: &str = "AGENT_CANCELLED";
+
+static ACTIVE_RUNS: OnceLock<Mutex<HashMap<String, Arc<Notify>>>> = OnceLock::new();
+
+fn active_runs() -> &'static Mutex<HashMap<String, Arc<Notify>>> {
+    ACTIVE_RUNS.get_or_init(|| Mutex::new(HashMap::new()))
+}
+
+/// Register a stoppable run. Await the returned signal alongside the work — it
+/// fires when [`cancel_run`] is called with the same id.
+pub fn register_run(run_id: &str) -> Arc<Notify> {
+    let signal = Arc::new(Notify::new());
+    if let Ok(mut runs) = active_runs().lock() {
+        runs.insert(run_id.to_string(), signal.clone());
+    }
+    signal
+}
+
+/// Drop a finished run from the registry.
+pub fn finish_run(run_id: &str) {
+    if let Ok(mut runs) = active_runs().lock() {
+        runs.remove(run_id);
+    }
+}
+
+/// Stop a run. Returns whether it was still live.
+pub fn cancel_run(run_id: &str) -> bool {
+    let signal = active_runs().lock().ok().and_then(|mut runs| runs.remove(run_id));
+    match signal {
+        // `notify_one` leaves a permit behind, so a stop racing ahead of the
+        // first await still lands.
+        Some(signal) => {
+            signal.notify_one();
+            true
+        }
+        None => false,
+    }
 }
 
 /// Execute a confirmed dangerous tool (called after user approves)
@@ -68,6 +228,7 @@ fn tool_definitions() -> Vec<Value> {
                 "properties": {
                     "task_id": { "type": "string" },
                     "title": { "type": "string" },
+                    "project_id": { "type": "string", "description": "Move the task to this project (id from list_projects)" },
                     "priority": { "type": "string", "enum": ["p0","p1","p2","p3"] },
                     "due": { "type": "string" },
                     "time_estimate": { "type": "string" },
@@ -115,7 +276,7 @@ fn tool_definitions() -> Vec<Value> {
         }),
         json!({
             "name": "search_tasks",
-            "description": "Search tasks by text query, project, or status",
+            "description": "Search tasks by text, project, or status. The text is matched against the title, definition of done, comment, next step and tracker link",
             "parameters": {
                 "type": "object",
                 "properties": {
@@ -251,6 +412,28 @@ fn execute_tool_sync(conn: &Connection, tool_name: &str, args: &Value) -> Result
                 }
             }
 
+            // Moving between projects is a separate case: an id that does not
+            // exist would either break the foreign key or quietly detach the
+            // task from every board, so it is checked before it is written.
+            if let Some(project_id) = args["project_id"].as_str() {
+                let exists = conn
+                    .query_row(
+                        "SELECT EXISTS(SELECT 1 FROM projects WHERE id = ?1)",
+                        [project_id],
+                        |row| row.get::<_, i32>(0),
+                    )
+                    .unwrap_or(0)
+                    == 1;
+                if !exists {
+                    return Err(format!(
+                        "No project with id {}. Call list_projects to get the real ids.",
+                        project_id
+                    ));
+                }
+                updates.push("project_id = ?".to_string());
+                params.push(Box::new(project_id.to_string()));
+            }
+
             if updates.is_empty() {
                 return Ok("No fields to update".to_string());
             }
@@ -273,12 +456,14 @@ fn execute_tool_sync(conn: &Connection, tool_name: &str, args: &Value) -> Result
             let old_snap = task_snapshot(conn, task_id);
 
             if new_status == "doing" {
-                let count: i32 = conn.query_row(
-                    "SELECT COUNT(*) FROM tasks WHERE status = 'doing' AND id != ?1",
-                    [task_id], |r| r.get(0),
-                ).unwrap_or(0);
-                if count >= 3 {
-                    return Err("WIP limit reached (3 tasks in doing). Move another task out first.".to_string());
+                // One WIP rule for the whole app — the guard also knows the
+                // configured limit and that archived tasks do not count.
+                let wip = crate::services::wip_guard::check_wip(conn, Some(task_id));
+                if !wip.allowed {
+                    return Err(format!(
+                        "WIP limit reached ({} tasks in doing). Move another task out first.",
+                        wip.limit,
+                    ));
                 }
             }
 
@@ -310,16 +495,14 @@ fn execute_tool_sync(conn: &Connection, tool_name: &str, args: &Value) -> Result
                     [task_id],
                 ).map_err(|e| e.to_string())?;
             } else {
-                // A task archived mid-flight only returns to 'doing' if WIP allows it.
-                let doing: i32 = conn.query_row(
-                    "SELECT COUNT(*) FROM tasks WHERE status = 'doing' AND archived_at IS NULL AND id != ?1",
-                    [task_id], |r| r.get(0),
-                ).unwrap_or(0);
+                // A task archived mid-flight only returns to 'doing' if WIP allows
+                // it — same guard, same configured limit as everywhere else.
+                let wip_allows = crate::services::wip_guard::check_wip(conn, Some(task_id)).allowed;
                 conn.execute(
                     "UPDATE tasks SET archived_at = NULL, updated_at = datetime('now'), \
-                     status = CASE WHEN status = 'doing' AND ?2 >= 3 THEN 'queue' ELSE status END \
+                     status = CASE WHEN status = 'doing' AND NOT ?2 THEN 'queue' ELSE status END \
                      WHERE id = ?1",
-                    rusqlite::params![task_id, doing],
+                    rusqlite::params![task_id, wip_allows],
                 ).map_err(|e| e.to_string())?;
             }
 
@@ -341,12 +524,25 @@ fn execute_tool_sync(conn: &Connection, tool_name: &str, args: &Value) -> Result
             let mut params: Vec<Box<dyn rusqlite::types::ToSql>> = Vec::new();
 
             if !query.is_empty() {
-                sql.push_str(" AND title LIKE ?");
-                params.push(Box::new(format!("%{}%", query)));
+                // A task "about X" often mentions X in its description or its
+                // ticket link rather than its title.
+                sql.push_str(
+                    " AND (title LIKE ? OR COALESCE(dod, '') LIKE ? OR COALESCE(comment, '') LIKE ? \
+                     OR COALESCE(next_step, '') LIKE ? OR COALESCE(tracker_url, '') LIKE ?)",
+                );
+                let pattern = format!("%{}%", query);
+                for _ in 0..5 {
+                    params.push(Box::new(pattern.clone()));
+                }
             }
             if let Some(pid) = project_id {
-                sql.push_str(" AND project_id = ?");
-                params.push(Box::new(pid.to_string()));
+                // A project stands for its sub-projects too, exactly as on the board.
+                let (filter, ids) =
+                    crate::services::project_tree::subtree_filter(conn, pid, "project_id");
+                sql.push_str(&format!(" AND {}", filter));
+                for id in ids {
+                    params.push(Box::new(id));
+                }
             }
             if let Some(s) = status {
                 sql.push_str(" AND status = ?");
@@ -384,8 +580,12 @@ fn execute_tool_sync(conn: &Connection, tool_name: &str, args: &Value) -> Result
             let mut params: Vec<Box<dyn rusqlite::types::ToSql>> = Vec::new();
 
             if let Some(pid) = project_id {
-                sql.push_str(" AND t.project_id = ?");
-                params.push(Box::new(pid.to_string()));
+                let (filter, ids) =
+                    crate::services::project_tree::subtree_filter(conn, pid, "t.project_id");
+                sql.push_str(&format!(" AND {}", filter));
+                for id in ids {
+                    params.push(Box::new(id));
+                }
             }
             if let Some(s) = status {
                 sql.push_str(" AND t.status = ?");
@@ -415,11 +615,21 @@ fn execute_tool_sync(conn: &Connection, tool_name: &str, args: &Value) -> Result
             }
         }
         "list_projects" => {
+            // The parent's name comes along: without it a sub-project reads as
+            // an unrelated project and the model picks the wrong one.
             let mut stmt = conn.prepare(
-                "SELECT id, name FROM projects ORDER BY \"order\" ASC"
+                "SELECT p.id, p.name, parent.name FROM projects p \
+                 LEFT JOIN projects parent ON p.parent_id = parent.id \
+                 ORDER BY p.\"order\" ASC"
             ).map_err(|e| e.to_string())?;
             let rows: Vec<String> = stmt.query_map([], |row| {
-                Ok(format!("- {} | {}", row.get::<_, String>(0)?, row.get::<_, String>(1)?))
+                let parent: Option<String> = row.get(2)?;
+                Ok(format!(
+                    "- {} | {}{}",
+                    row.get::<_, String>(0)?,
+                    row.get::<_, String>(1)?,
+                    parent.map(|p| format!(" (sub-project of {})", p)).unwrap_or_default(),
+                ))
             }).map_err(|e| e.to_string())?.filter_map(|r| r.ok()).collect();
             if rows.is_empty() {
                 Ok("No projects".to_string())
@@ -651,7 +861,7 @@ async fn call_openai(
     if !resp.status().is_success() {
         let status = resp.status();
         let body = resp.text().await.unwrap_or_default();
-        let msg = format!("[agent] API error {}: {}", status, &body[..body.len().min(300)]);
+        let msg = format!("[agent] API error {}: {}", status, crate::services::logger::snippet(&body, 300));
         crate::services::logger::log("error", &msg);
         return Err(msg);
     }
@@ -709,6 +919,7 @@ pub async fn chat(
     memory: &str,
     focused_task_context: &str,
     db: &Mutex<Connection>,
+    progress: &ProgressReporter,
 ) -> Result<AgentResponse, String> {
     let base_prompt = build_system_prompt(memory);
     let system = if focused_task_context.is_empty() {
@@ -745,10 +956,14 @@ pub async fn chat(
     messages.push(json!({"role": "user", "content": user_message}));
 
     let mut all_tool_calls: Vec<ToolCallLog> = Vec::new();
-    let max_iterations = 10;
+    // Enough headroom for a bulk request — "move every task about X into project
+    // Y" is one search plus a run of updates — without letting a confused model
+    // loop forever. The user can stop a run at any point anyway.
+    let max_iterations = 16;
 
     for iteration in 0..max_iterations {
         crate::services::logger::log("info", &format!("[agent] iteration {}, messages: {}", iteration, messages.len()));
+        progress.thinking();
 
         let (text, tool_calls, stop_reason) = if is_anthropic {
             call_anthropic(&client, api_key, model, &system, &messages, &formatted_tools).await?
@@ -822,9 +1037,10 @@ pub async fn chat(
                 }
             } else {
                 // Safe — execute immediately
+                progress.tool(name, args, db);
                 let result = execute_tool_async(name, args, db).await;
 
-                crate::services::logger::log("info", &format!("[agent] tool {}({}) -> {}", name, args, &result[..result.len().min(200)]));
+                crate::services::logger::log("info", &format!("[agent] tool {}({}) -> {}", name, args, crate::services::logger::snippet(&result, 200)));
 
                 all_tool_calls.push(ToolCallLog {
                     tool_name: name.clone(),
@@ -964,7 +1180,7 @@ pub async fn run_tool_loop_traced(
         let mut anthropic_results: Vec<Value> = Vec::new();
         for (id, name, args) in &tool_calls {
             let result = execute_tool_async(name, args, db).await;
-            crate::services::logger::log("info", &format!("[agent:loop] tool {}({}) -> {}", name, args, &result[..result.len().min(200)]));
+            crate::services::logger::log("info", &format!("[agent:loop] tool {}({}) -> {}", name, args, crate::services::logger::snippet(&result, 200)));
             trace.push(ToolCallLog {
                 tool_name: name.clone(),
                 arguments: args.clone(),
@@ -988,4 +1204,95 @@ pub async fn run_tool_loop_traced(
         call_openai(&client, api_key, model, system, &messages, &formatted_tools).await?
     };
     Ok((text.unwrap_or_default(), trace))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::db::connection::init_test_db;
+
+    /// Two projects and three tasks: one named after the thing, one that only
+    /// mentions it in a comment, one unrelated.
+    fn workspace() -> Connection {
+        let conn = init_test_db();
+        conn.execute_batch(
+            "INSERT INTO projects (id, name) VALUES ('inbox-p', 'Разное'), ('idchess', 'IdChess');
+             INSERT INTO tasks (id, title, project_id, status) VALUES
+               ('t1', 'Созвон по idChess', 'inbox-p', 'queue'),
+               ('t2', 'Разобрать доску', 'inbox-p', 'queue'),
+               ('t3', 'Отчёт за неделю', 'inbox-p', 'queue');
+             UPDATE tasks SET comment = 'обсудили idChess и сроки' WHERE id = 't2';",
+        )
+        .unwrap();
+        conn
+    }
+
+    fn project_of(conn: &Connection, task_id: &str) -> Option<String> {
+        conn.query_row("SELECT project_id FROM tasks WHERE id = ?1", [task_id], |r| r.get(0))
+            .unwrap()
+    }
+
+    #[test]
+    fn update_task_moves_a_task_to_another_project() {
+        let conn = workspace();
+        let result = execute_tool_sync(
+            &conn,
+            "update_task",
+            &json!({ "task_id": "t1", "project_id": "idchess" }),
+        )
+        .unwrap();
+        assert!(result.contains("t1"), "{}", result);
+        assert_eq!(project_of(&conn, "t1").as_deref(), Some("idchess"));
+    }
+
+    #[test]
+    fn a_project_that_does_not_exist_is_refused() {
+        let conn = workspace();
+        let error = execute_tool_sync(
+            &conn,
+            "update_task",
+            &json!({ "task_id": "t1", "project_id": "does-not-exist" }),
+        )
+        .unwrap_err();
+        assert!(error.contains("No project"), "{}", error);
+        // The task stays exactly where it was.
+        assert_eq!(project_of(&conn, "t1").as_deref(), Some("inbox-p"));
+    }
+
+    #[test]
+    fn search_looks_beyond_the_title() {
+        let conn = workspace();
+        let found = execute_tool_sync(&conn, "search_tasks", &json!({ "query": "idChess" })).unwrap();
+        assert!(found.contains("t1"), "the title match is missing: {}", found);
+        assert!(found.contains("t2"), "the comment match is missing: {}", found);
+        assert!(!found.contains("t3"), "an unrelated task was returned: {}", found);
+    }
+
+    #[test]
+    fn cancel_reports_whether_the_run_was_live() {
+        let id = "test-run-cancel";
+        let _signal = register_run(id);
+        assert!(cancel_run(id), "a registered run must report as stopped");
+        assert!(!cancel_run(id), "a run can only be stopped once");
+        assert!(!cancel_run("never-registered"));
+    }
+
+    #[tokio::test]
+    async fn cancel_wakes_a_waiter_even_if_it_arrives_first() {
+        let id = "test-run-race";
+        let signal = register_run(id);
+        // Stop lands before anyone awaits - the permit must survive.
+        assert!(cancel_run(id));
+        tokio::time::timeout(std::time::Duration::from_secs(1), signal.notified())
+            .await
+            .expect("notified() must return immediately on a stored permit");
+    }
+
+    #[test]
+    fn finish_run_leaves_nothing_to_cancel() {
+        let id = "test-run-finish";
+        let _signal = register_run(id);
+        finish_run(id);
+        assert!(!cancel_run(id));
+    }
 }

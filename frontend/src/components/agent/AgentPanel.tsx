@@ -20,6 +20,7 @@ import AddIcon from "@mui/icons-material/Add";
 import DeleteOutlineIcon from "@mui/icons-material/DeleteOutline";
 import ArrowBackIcon from "@mui/icons-material/ArrowBack";
 import CloseIcon from "@mui/icons-material/Close";
+import StopCircleIcon from "@mui/icons-material/StopCircle";
 import CheckIcon from "@mui/icons-material/Check";
 import BlockIcon from "@mui/icons-material/Block";
 import WarningAmberIcon from "@mui/icons-material/WarningAmber";
@@ -33,11 +34,29 @@ import { useI18n } from "@/i18n";
 import { appLog } from "@/stores/logStore";
 import * as api from "@/utils/tauri";
 
+/// One line of the live activity read-out while the agent works.
+type ActivityStep = Pick<api.AgentProgress, "seq" | "phase" | "tool" | "variant" | "detail">;
+
+/// How many finished steps stay on screen; older ones scroll out of the trail.
+const ACTIVITY_TRAIL = 6;
+
+/// Ids only have to be unique among the runs of one app session, and
+/// `crypto.randomUUID` is secure-context only — which the webview's custom
+/// scheme does not guarantee.
+let runCounter = 0;
+const newRunId = () => `run-${Date.now().toString(36)}-${(runCounter += 1)}`;
+
 export default function AgentPanel() {
   const [input, setInput] = useState("");
   const [visible, setVisible] = useState(false);
   const [loading, setLoading] = useState(false);
   const [showHistory, setShowHistory] = useState(false);
+  const [steps, setSteps] = useState<ActivityStep[]>([]);
+  const [elapsed, setElapsed] = useState(0);
+  /// Identifies the request in flight: the backend tags its progress events and
+  /// accepts a stop for this id, and anything arriving under another id belongs
+  /// to a run the user already walked away from.
+  const runIdRef = useRef<string | null>(null);
   const inputRef = useRef<HTMLInputElement>(null);
   const chatEndRef = useRef<HTMLDivElement>(null);
   const { load, loadDoing } = useTaskStore();
@@ -60,20 +79,74 @@ export default function AgentPanel() {
 
   useEffect(() => {
     chatEndRef.current?.scrollIntoView({ behavior: "smooth" });
-  }, [messages, loading]);
+  }, [messages, loading, steps]);
 
-  const handleSubmit = async () => {
-    const msg = input.trim();
-    if (!msg || loading) return;
+  // Live steps from the backend. The last one is what the agent is doing right
+  // now; the ones before it are done. "Thinking" is never kept in the trail —
+  // it is the gap between two real steps, not a step of its own.
+  useEffect(() => {
+    const unlisten = api.onAgentProgress((step) => {
+      if (step.run_id !== runIdRef.current) return;
+      setSteps((prev) => {
+        const trail = prev.filter((s) => s.phase === "tool");
+        return [...trail, step].slice(-ACTIVITY_TRAIL);
+      });
+    });
+    return () => {
+      void unlisten.then((off) => off());
+    };
+  }, []);
 
-    await addMessage("user", msg);
-    setInput("");
+  // Seconds on the wall — the difference between "it is working" and "it is stuck".
+  useEffect(() => {
+    if (!loading) {
+      setElapsed(0);
+      return;
+    }
+    const startedAt = Date.now();
+    const timer = setInterval(() => setElapsed(Math.floor((Date.now() - startedAt) / 1000)), 1000);
+    return () => clearInterval(timer);
+  }, [loading]);
+
+  // Escape is the universal way out, innermost thing first: stop the run, leave
+  // the history list, close the panel.
+  useEffect(() => {
+    if (!visible) return;
+    const onKeyDown = (e: KeyboardEvent) => {
+      if (e.key !== "Escape") return;
+      e.preventDefault();
+      if (runIdRef.current) void handleStop();
+      else if (showHistory) setShowHistory(false);
+      else setVisible(false);
+    };
+    window.addEventListener("keydown", onKeyDown);
+    return () => window.removeEventListener("keydown", onKeyDown);
+  }, [visible, showHistory, t]);
+
+  /// Claim the panel for a new request and return its id. Anything still in
+  /// flight is abandoned by the id check every handler makes before it writes.
+  const startRun = (initial: ActivityStep[] = []) => {
+    const runId = newRunId();
+    runIdRef.current = runId;
+    setSteps(initial);
     setLoading(true);
+    return runId;
+  };
 
+  /// Release the panel, unless another run has already taken it over.
+  const endRun = (runId: string) => {
+    if (runIdRef.current !== runId) return false;
+    runIdRef.current = null;
+    setLoading(false);
+    setSteps([]);
+    return true;
+  };
+
+  const runAgent = async (userMsg: string, hist: [string, string][]) => {
+    const runId = startRun();
     try {
-      // Build history from previous messages (last 20 max)
-      const hist: [string, string][] = messages.slice(-20).map((m) => [m.role, m.text]);
-      const response = await api.agentChat(msg, selectedTaskId ?? undefined, hist);
+      const response = await api.agentChat(runId, userMsg, selectedTaskId ?? undefined, hist);
+      if (runIdRef.current !== runId) return;
       for (const tc of response.tool_calls) {
         appLog.info(`[agent] ${tc.tool_name}(${Object.entries(tc.arguments).map(([k,v]) => `${k}=${JSON.stringify(v)}`).join(", ")}) → ${tc.result.substring(0, 150)}`);
       }
@@ -88,15 +161,50 @@ export default function AgentPanel() {
       await loadDoing();
     } catch (e) {
       const err = String(e);
+      // A run the user stopped is not a failure, and a stopped run's error
+      // belongs to nobody — the panel has already moved on.
+      if (runIdRef.current !== runId || err.includes(api.AGENT_CANCELLED)) {
+        appLog.info(`[agent] run dropped: ${err}`);
+        return;
+      }
       appLog.error(`[agent] ${err}`);
       if (err.includes("API_KEY_NOT_SET")) {
-        await addMessage("assistant", locale === "ru" ? "API-ключ не настроен. Перейдите в **Настройки** → **ИИ-ассистент**." : "API key not set. Go to **Settings** → **AI Assistant**.");
+        await addMessage("assistant", t.agentNoApiKey);
+      } else if (err.includes("INTERNAL_ERROR")) {
+        await addMessage("assistant", t.agentInternalError);
       } else {
         await addMessage("assistant", err);
       }
     } finally {
-      setLoading(false);
+      endRun(runId);
     }
+  };
+
+  const handleSubmit = async () => {
+    const msg = input.trim();
+    if (!msg || loading) return;
+
+    // History from previous messages (last 20 max), captured before the new one.
+    const hist: [string, string][] = messages.slice(-20).map((m) => [m.role, m.text]);
+    await addMessage("user", msg);
+    setInput("");
+    await runAgent(msg, hist);
+  };
+
+  /// Stop whatever is running: the backend drops the run, the panel frees up.
+  const handleStop = async () => {
+    const runId = runIdRef.current;
+    runIdRef.current = null;
+    setLoading(false);
+    setSteps([]);
+    if (runId) {
+      try {
+        await api.agentCancel(runId);
+      } catch (e) {
+        appLog.error(`[agent] stop failed: ${e}`);
+      }
+    }
+    await addMessage("assistant", t.agentStopped);
   };
 
   const handleRegenerate = async (msgIndex: number) => {
@@ -109,21 +217,12 @@ export default function AgentPanel() {
       }
     }
     if (!userMsg || loading) return;
-    setLoading(true);
-    try {
-      const hist: [string, string][] = messages.slice(0, msgIndex).map((m) => [m.role, m.text]);
-      const response = await api.agentChat(userMsg, selectedTaskId ?? undefined, hist);
-      await addMessage("assistant", response.text, response.tool_calls, true);
-      if (selectedProjectId) await load(selectedProjectId);
-      await loadDoing();
-    } catch (e) {
-      await addMessage("assistant", String(e));
-    } finally {
-      setLoading(false);
-    }
+    const hist: [string, string][] = messages.slice(0, msgIndex).map((m) => [m.role, m.text]);
+    await runAgent(userMsg, hist);
   };
 
   const handleNewChat = async () => {
+    if (loading) await handleStop();
     await newSession();
     setShowHistory(false);
     setTimeout(() => inputRef.current?.focus(), 100);
@@ -131,9 +230,20 @@ export default function AgentPanel() {
 
   const handleConfirm = async (msg: api.ChatMessageRecord) => {
     if (!msg.pending_confirmations || loading) return;
-    setLoading(true);
+    // Confirmed tools run outside the agent loop, so their activity line is
+    // built here from what the user just approved.
+    const runId = startRun([
+      {
+        seq: 0,
+        phase: "tool",
+        tool: msg.pending_confirmations[0].tool_name,
+        variant: null,
+        detail: null,
+      },
+    ]);
     try {
       const results = await api.agentConfirm(msg.pending_confirmations);
+      if (runIdRef.current !== runId) return;
       for (const r of results) {
         appLog.info(`[agent] confirmed: ${r.tool_name} → ${r.result.substring(0, 100)}`);
       }
@@ -143,9 +253,10 @@ export default function AgentPanel() {
       if (selectedProjectId) await load(selectedProjectId);
       await loadDoing();
     } catch (e) {
+      if (runIdRef.current !== runId) return;
       await addMessage("assistant", String(e));
     } finally {
-      setLoading(false);
+      endRun(runId);
     }
   };
 
@@ -154,6 +265,19 @@ export default function AgentPanel() {
     await setConfirmationStatus(msg.id, "cancelled");
     await addMessage("assistant", locale === "ru" ? "Отменено." : "Cancelled.");
   };
+
+  /// Steps as the user reads them: past tense once done, present while running.
+  const activity = (steps.length > 0
+    ? steps
+    : [{ seq: -1, phase: "thinking" as const, tool: null, variant: null, detail: null }]
+  ).map((step, i, all) => {
+    const done = i < all.length - 1;
+    if (step.phase !== "tool" || !step.tool) {
+      return { key: `${step.seq}`, text: t.agentThinking };
+    }
+    const label = t.agentStep(step.tool, step.variant, done);
+    return { key: `${step.seq}`, text: step.detail ? `${label} · ${step.detail}` : label };
+  });
 
   const formatPendingArgs = (args: Record<string, unknown>): [string, string][] => {
     const labels: Record<string, { ru: string; en: string }> = {
@@ -260,7 +384,11 @@ export default function AgentPanel() {
           {sessions.map((s) => (
             <Box
               key={s.id}
-              onClick={() => { openSession(s.id); setShowHistory(false); }}
+              onClick={async () => {
+                if (loading) await handleStop();
+                await openSession(s.id);
+                setShowHistory(false);
+              }}
               sx={{
                 px: 2,
                 py: 1,
@@ -444,8 +572,56 @@ export default function AgentPanel() {
               </Box>
             ))}
             {loading && (
-              <Box sx={{ display: "flex", justifyContent: "center", py: 2 }}>
-                <CircularProgress size={20} />
+              <Box sx={{ mb: 1.5, display: "flex", gap: 1, alignItems: "flex-start" }}>
+                <SmartToyIcon sx={{ fontSize: 16, color: "primary.main", mt: "2px", flexShrink: 0 }} />
+                <Box sx={{ flex: 1, minWidth: 0 }}>
+                  {activity.map((line, i) => {
+                    const isCurrent = i === activity.length - 1;
+                    return (
+                      <Box
+                        key={line.key}
+                        sx={{ display: "flex", alignItems: "center", gap: 0.75, minHeight: 18 }}
+                      >
+                        {isCurrent ? (
+                          <CircularProgress size={10} thickness={6} sx={{ flexShrink: 0 }} />
+                        ) : (
+                          <CheckIcon sx={{ fontSize: 12, opacity: 0.4, flexShrink: 0 }} />
+                        )}
+                        <Typography
+                          noWrap
+                          sx={
+                            isCurrent
+                              ? (theme) => ({
+                                  fontSize: 12,
+                                  fontWeight: 500,
+                                  // Sweeping highlight: the line reads as alive
+                                  // even while nothing else on screen moves.
+                                  backgroundImage: `linear-gradient(90deg, ${theme.palette.text.secondary} 0%, ${theme.palette.text.primary} 45%, ${theme.palette.text.secondary} 90%)`,
+                                  backgroundSize: "220% 100%",
+                                  WebkitBackgroundClip: "text",
+                                  backgroundClip: "text",
+                                  color: "transparent",
+                                  WebkitTextFillColor: "transparent",
+                                  animation: "agent-activity-sweep 1.8s linear infinite",
+                                  "@keyframes agent-activity-sweep": {
+                                    from: { backgroundPosition: "140% 0" },
+                                    to: { backgroundPosition: "-140% 0" },
+                                  },
+                                })
+                              : { fontSize: 12, opacity: 0.45 }
+                          }
+                        >
+                          {line.text}
+                        </Typography>
+                        {isCurrent && elapsed >= 2 && (
+                          <Typography sx={{ fontSize: 11, opacity: 0.3, flexShrink: 0 }}>
+                            {t.agentElapsed(elapsed)}
+                          </Typography>
+                        )}
+                      </Box>
+                    );
+                  })}
+                </Box>
               </Box>
             )}
             <div ref={chatEndRef} />
@@ -468,9 +644,20 @@ export default function AgentPanel() {
                 sx: { fontSize: 13, alignItems: "center" },
                 endAdornment: (
                   <InputAdornment position="end">
-                    <IconButton size="small" onClick={handleSubmit} disabled={loading}>
-                      <SendIcon fontSize="small" />
-                    </IconButton>
+                    {loading ? (
+                      <IconButton
+                        size="small"
+                        onClick={handleStop}
+                        title={t.agentStop}
+                        sx={{ color: "error.main" }}
+                      >
+                        <StopCircleIcon fontSize="small" />
+                      </IconButton>
+                    ) : (
+                      <IconButton size="small" onClick={handleSubmit} disabled={!input.trim()}>
+                        <SendIcon fontSize="small" />
+                      </IconButton>
+                    )}
                   </InputAdornment>
                 ),
               }}

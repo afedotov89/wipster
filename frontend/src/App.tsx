@@ -3,6 +3,7 @@ import { ThemeProvider, CssBaseline, Box, Typography, Button, LinearProgress } f
 import SystemUpdateIcon from "@mui/icons-material/SystemUpdate";
 import { buildMuiTheme } from "./theme/builder";
 import { useThemeStore } from "./theme/store";
+import { useSettingsStore } from "./stores/settingsStore";
 import AppShell from "./components/layout/AppShell";
 import { useUndoRedo } from "./hooks/useUndoRedo";
 import { useAutoUpdater } from "./hooks/useAutoUpdater";
@@ -79,9 +80,11 @@ function AppContent() {
 export default function App() {
   const current = useThemeStore((s) => s.current);
   const hydrateFromDb = useThemeStore((s) => s.hydrateFromDb);
+  const hydrateSettings = useSettingsStore((s) => s.hydrate);
   const muiTheme = useMemo(() => buildMuiTheme(current), [current]);
 
   useEffect(() => { hydrateFromDb(); }, [hydrateFromDb]);
+  useEffect(() => { hydrateSettings(); }, [hydrateSettings]);
 
   return (
     <ThemeProvider theme={muiTheme}>

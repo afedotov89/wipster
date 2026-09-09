@@ -5,11 +5,14 @@ import PauseIcon from "@mui/icons-material/Pause";
 import CheckCircleIcon from "@mui/icons-material/CheckCircle";
 import DeleteOutlineIcon from "@mui/icons-material/DeleteOutline";
 import Inventory2OutlinedIcon from "@mui/icons-material/Inventory2Outlined";
+import AutoAwesomeIcon from "@mui/icons-material/AutoAwesome";
 import type { Task, TaskStatus } from "@/utils/tauri";
 import { PRIORITY_COLORS } from "@/utils/constants";
 import type { Priority } from "@/utils/tauri";
 import { useUiStore } from "@/stores/uiStore";
 import { useTaskStore } from "@/stores/taskStore";
+import { useProjectStore } from "@/stores/projectStore";
+import { useAiFillStore } from "@/stores/aiFillStore";
 import { useI18n } from "@/i18n";
 import { useSortable } from "@dnd-kit/sortable";
 import { CSS } from "@dnd-kit/utilities";
@@ -22,6 +25,15 @@ interface Props {
 export default function TaskCard({ task, onMove }: Props) {
   const { openDetail, selectedTaskId, detailOpen, closeDetail } = useUiStore();
   const { remove, setArchived } = useTaskStore();
+  const aiFilling = useAiFillStore((s) => s.filling.includes(task.id));
+  // On a parent's board the tasks come from several sub-projects; the card has
+  // to say which one. On a project's own board every task matches, so nothing
+  // is shown.
+  const subProject = useProjectStore((s) =>
+    task.project_id && task.project_id !== s.selectedProjectId
+      ? (s.projects.find((p) => p.id === task.project_id)?.name ?? null)
+      : null,
+  );
   const { t } = useI18n();
   const isSelected = detailOpen && selectedTaskId === task.id;
   const [contextMenu, setContextMenu] = useState<{ x: number; y: number } | null>(null);
@@ -103,13 +115,40 @@ export default function TaskCard({ task, onMove }: Props) {
       <Box sx={{ p: 1.5, pb: checklist ? 0.5 : 1.5, display: "flex", gap: 0.5 }}>
         {/* Content */}
         <Box sx={{ flex: 1, minWidth: 0 }}>
-          <Typography
-            variant="body2"
-            sx={{ fontWeight: 500, fontSize: 13, wordBreak: "break-word" }}
-          >
-            {task.title}
-          </Typography>
+          <Box sx={{ display: "flex", alignItems: "flex-start", gap: 0.75 }}>
+            {/* The fill outlives the panel that started it — the card is where
+                the user can still see whose fields are being written. */}
+            {aiFilling && (
+              <AutoAwesomeIcon
+                sx={{
+                  mt: "1px",
+                  fontSize: 13,
+                  flexShrink: 0,
+                  color: "#F2A900",
+                  animation: "ai-fill-pulse 1.4s ease-in-out infinite",
+                  "@keyframes ai-fill-pulse": {
+                    "0%, 100%": { opacity: 0.35 },
+                    "50%": { opacity: 1 },
+                  },
+                }}
+              />
+            )}
+            <Typography
+              variant="body2"
+              sx={{ fontWeight: 500, fontSize: 13, wordBreak: "break-word" }}
+            >
+              {task.title}
+            </Typography>
+          </Box>
           <Box sx={{ display: "flex", gap: 0.5, mt: 0.5, flexWrap: "wrap" }}>
+            {subProject && (
+              <Chip
+                label={subProject}
+                size="small"
+                variant="outlined"
+                sx={{ height: 20, fontSize: 10, opacity: 0.7 }}
+              />
+            )}
             {task.time_estimate && (
               <Chip label={task.time_estimate} size="small" sx={{ height: 20, fontSize: 10 }} />
             )}

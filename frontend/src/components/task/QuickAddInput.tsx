@@ -6,6 +6,8 @@ import { useProjectStore } from "@/stores/projectStore";
 import { useHistoryStore } from "@/stores/historyStore";
 import { useUiStore } from "@/stores/uiStore";
 import { useI18n } from "@/i18n";
+import { useAiFillStore } from "@/stores/aiFillStore";
+import { isBareTrackerReference } from "@/utils/tauri";
 
 export default function QuickAddInput() {
   const [value, setValue] = useState("");
@@ -14,6 +16,7 @@ export default function QuickAddInput() {
   const { selectedProjectId } = useProjectStore();
   const { refresh } = useHistoryStore();
   const { openDetail } = useUiStore();
+  const startAiFill = useAiFillStore((s) => s.fill);
   const { t } = useI18n();
 
   // Auto-focus when project changes
@@ -44,6 +47,14 @@ export default function QuickAddInput() {
     // render — otherwise the task would settle before the user ever sees it.
     openDetail(task.id);
     await refresh();
+
+    // A task whose title is only a tracker link carries nothing the user typed:
+    // everything it should say lives in the ticket, so fetch it without asking.
+    try {
+      if (await isBareTrackerReference(title)) void startAiFill(task.id);
+    } catch {
+      // Nothing to auto-fill from — the ✨ button is still there.
+    }
   };
 
   return (

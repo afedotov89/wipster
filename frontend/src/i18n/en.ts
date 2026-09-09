@@ -1,3 +1,22 @@
+/// Wording for the agent's activity line, per tool: `active` while the step is
+/// running, `done` once it is behind us. A tool with two user-visible meanings
+/// gets a `tool:variant` entry.
+const AGENT_STEPS: Record<string, { active: string; done: string }> = {
+  create_task: { active: "Creating task", done: "Created task" },
+  update_task: { active: "Updating task", done: "Updated task" },
+  move_task: { active: "Moving task", done: "Moved task" },
+  delete_task: { active: "Deleting task", done: "Deleted task" },
+  set_task_archived: { active: "Archiving task", done: "Archived task" },
+  "set_task_archived:restore": { active: "Restoring task", done: "Restored task" },
+  search_tasks: { active: "Searching tasks", done: "Searched tasks" },
+  list_tasks: { active: "Reading the task list", done: "Read the task list" },
+  list_projects: { active: "Reading projects", done: "Read projects" },
+  get_task: { active: "Reading task", done: "Read task" },
+  read_tracker_issue: { active: "Reading the tracker", done: "Read the tracker" },
+  create_tracker_issue: { active: "Creating a tracker issue", done: "Created a tracker issue" },
+  remember: { active: "Saving to memory", done: "Saved to memory" },
+};
+
 const en = {
   // App
   appName: "WIPSTER",
@@ -6,6 +25,17 @@ const en = {
   allDoing: "All Doing",
   archive: "Archive",
   projects: "PROJECTS",
+  uploadIcon: "Upload your own icon — or paste one with ⌘V",
+  monoIcon: "Single-colour icon — paint it in the project colour",
+  iconTooLarge: "The file is too big — up to 4 MB, or 64 KB for SVG",
+  iconNotAnImage: "That is not an image Wipster can read",
+  addSubProject: "Add sub-project",
+  subProjectName: "Sub-project name",
+  deleteProjectTitle: (name: string) => `Delete "${name}"?`,
+  deleteProjectSubProjects: (n: number) =>
+    `${n} sub-project${n === 1 ? "" : "s"} will be deleted with it.`,
+  deleteProjectTasks: (n: number) =>
+    `${n} task${n === 1 ? "" : "s"} will move to the Archive, where they can be restored.`,
   settings: "Settings",
   language: "Language",
 
@@ -62,8 +92,9 @@ const en = {
 
   // WIP / Swap
   wipLimitReached: "WIP Limit Reached",
-  wipLimitDescription:
-    "You already have 3 tasks in progress. Choose one to move back to Queue:",
+  wipLimitDescription: (inProgress: number) =>
+    `You already have ${inProgress} task${inProgress === 1 ? "" : "s"} in progress. ` +
+    "Choose one to move back to Queue:",
   keepInQueue: "Keep in Queue",
 
   // All Doing
@@ -100,6 +131,10 @@ const en = {
   testKeyMissing: "Set an API key first",
   testProjectsInDb: (n: number) => `projects in the database: ${n}`,
 
+  // Settings - WIP limit
+  wipLimitSetting: "Tasks in progress at once",
+  wipLimitSettingHint: "The hard cap on the Doing column. Fewer means finishing more.",
+
   // Settings - Integrations
   integrations: "Integrations",
   yandexTracker: "Yandex Tracker",
@@ -109,6 +144,20 @@ const en = {
 
   // Agent
   agent: "Agent",
+  agentThinking: "Thinking\u2026",
+  aiFillHint: "Complete this task with AI \u2014 from its tracker issue and similar tasks",
+  aiFilling: "AI is filling this task in\u2026",
+  agentStop: "Stop",
+  agentStopped: "Stopped.",
+  agentElapsed: (seconds: number) => `${seconds}s`,
+  agentNoApiKey: "API key not set. Go to **Settings** \u2192 **AI Assistant**.",
+  agentInternalError: "The agent crashed mid-request. Details are in the log.",
+  /// How the current step is worded; falls back to the raw tool name.
+  agentStep: (tool: string, variant: string | null, done: boolean) => {
+    const wording = (variant && AGENT_STEPS[`${tool}:${variant}`]) || AGENT_STEPS[tool];
+    if (!wording) return tool;
+    return done ? wording.done : wording.active;
+  },
   apply: "Apply",
   cancel: "Cancel",
   applied: "Applied",

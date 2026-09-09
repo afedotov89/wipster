@@ -15,7 +15,8 @@ import { useTaskStore } from "@/stores/taskStore";
 import { useProjectStore } from "@/stores/projectStore";
 import { useUiStore } from "@/stores/uiStore";
 import { useHistoryStore } from "@/stores/historyStore";
-import { PRIORITY_COLORS, WIP_LIMIT } from "@/utils/constants";
+import { HEADER_BAND_HEIGHT, PRIORITY_COLORS } from "@/utils/constants";
+import { useSettingsStore } from "@/stores/settingsStore";
 import { useI18n } from "@/i18n";
 import type { Priority } from "@/utils/tauri";
 
@@ -24,6 +25,7 @@ export default function AllDoingView() {
   const { projects } = useProjectStore();
   const { openDetail } = useUiStore();
   const { refresh } = useHistoryStore();
+  const wipLimit = useSettingsStore((s) => s.wipLimit);
   const { t } = useI18n();
 
   useEffect(() => {
@@ -46,23 +48,23 @@ export default function AllDoingView() {
   };
 
   return (
-    <Box sx={{ p: 3 }}>
-      <Box sx={{ display: "flex", alignItems: "center", gap: 2, mb: 3 }}>
+    <Box sx={{ px: 3, pb: 3 }}>
+      <Box sx={{ height: HEADER_BAND_HEIGHT, display: "flex", alignItems: "center", gap: 2, mb: 2 }}>
         <Typography variant="h6" sx={{ fontWeight: 700 }}>
           {t.inProgress}
         </Typography>
         <Chip
-          label={`${doingTasks.length} / ${WIP_LIMIT}`}
+          label={`${doingTasks.length} / ${wipLimit}`}
           size="small"
-          color={doingTasks.length >= WIP_LIMIT ? "warning" : "default"}
+          color={doingTasks.length >= wipLimit ? "warning" : "default"}
         />
       </Box>
 
       <LinearProgress
         variant="determinate"
-        value={(doingTasks.length / WIP_LIMIT) * 100}
+        value={(doingTasks.length / wipLimit) * 100}
         sx={{ mb: 3, height: 4, borderRadius: 2 }}
-        color={doingTasks.length >= WIP_LIMIT ? "warning" : "primary"}
+        color={doingTasks.length >= wipLimit ? "warning" : "primary"}
       />
 
       <Box sx={{ display: "flex", gap: 2, flexWrap: "wrap" }}>

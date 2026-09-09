@@ -2,6 +2,11 @@ use rusqlite::Connection;
 
 use super::schema;
 
+/// Version the schema reaches once every migration below has run. Tests assert
+/// against this instead of a literal, so adding a migration means touching one
+/// number rather than hunting for the assertions that pinned the old one.
+pub const LATEST_VERSION: i32 = 15;
+
 pub fn run(conn: &Connection) -> Result<(), Box<dyn std::error::Error>> {
     let version = current_version(conn);
 
@@ -131,6 +136,29 @@ pub fn run(conn: &Connection) -> Result<(), Box<dyn std::error::Error>> {
         conn.execute("INSERT OR REPLACE INTO schema_version (version) VALUES (?1)", [13])?;
     }
 
+    if version < 14 {
+        // Sub-projects. Nullable, so every existing project stays a root and
+        // nothing about today's behaviour changes until a parent is chosen.
+        conn.execute_batch(
+            "ALTER TABLE projects ADD COLUMN parent_id TEXT REFERENCES projects(id) ON DELETE SET NULL;
+             CREATE INDEX IF NOT EXISTS idx_projects_parent ON projects(parent_id);",
+        )?;
+        conn.execute("INSERT OR REPLACE INTO schema_version (version) VALUES (?1)", [14])?;
+    }
+
+    if version < 15 {
+        // Custom project icons: the image itself (a data URL) and whether it is
+        // a single-colour glyph that should take the project's colour.
+        conn.execute_batch(
+            "ALTER TABLE projects ADD COLUMN icon_image TEXT;
+             ALTER TABLE projects ADD COLUMN icon_mono INTEGER NOT NULL DEFAULT 0;",
+        )?;
+        conn.execute(
+            "INSERT OR REPLACE INTO schema_version (version) VALUES (?1)",
+            [LATEST_VERSION],
+        )?;
+    }
+
     Ok(())
 }
 
@@ -152,7 +180,7 @@ mod tests {
         let conn = Connection::open_in_memory().unwrap();
         conn.execute_batch("PRAGMA foreign_keys=ON;").unwrap();
         run(&conn).unwrap();
-        assert_eq!(current_version(&conn), 13);
+        assert_eq!(current_version(&conn), LATEST_VERSION);
     }
 
     #[test]
@@ -161,6 +189,21 @@ mod tests {
         conn.execute_batch("PRAGMA foreign_keys=ON;").unwrap();
         run(&conn).unwrap();
         run(&conn).unwrap();
-        assert_eq!(current_version(&conn), 13);
+        assert_eq!(current_version(&conn), LATEST_VERSION);
+    }
+
+    /// An existing project keeps working as a root: the new column is there and
+    /// it is null for everything that was already in the database.
+    #[test]
+    fn sub_projects_start_out_flat() {
+        let conn = Connection::open_in_memory().unwrap();
+        conn.execute_batch("PRAGMA foreign_keys=ON;").unwrap();
+        run(&conn).unwrap();
+        conn.execute("INSERT INTO projects (id, name) VALUES ('p1', 'Flexar')", [])
+            .unwrap();
+        let parent: Option<String> = conn
+            .query_row("SELECT parent_id FROM projects WHERE id = 'p1'", [], |r| r.get(0))
+            .unwrap();
+        assert_eq!(parent, None);
     }
 }

@@ -9,16 +9,23 @@ import {
   Divider,
   Chip,
   CircularProgress,
+  IconButton,
 } from "@mui/material";
 import { useI18n, type Translations } from "@/i18n";
 import { useLogStore, appLog } from "@/stores/logStore";
 import * as api from "@/utils/tauri";
 import ThemePicker from "@/components/settings/ThemePicker";
+import RemoveIcon from "@mui/icons-material/Remove";
+import AddIcon from "@mui/icons-material/Add";
+import { HEADER_BAND_HEIGHT, MAX_WIP_LIMIT, MIN_WIP_LIMIT } from "@/utils/constants";
+import { useSettingsStore } from "@/stores/settingsStore";
 
 type Provider = "anthropic" | "openrouter";
 
 export default function SettingsView() {
   const { t, locale, setLocale } = useI18n();
+  const wipLimit = useSettingsStore((s) => s.wipLimit);
+  const setWipLimit = useSettingsStore((s) => s.setWipLimit);
   const [provider, setProvider] = useState<Provider>("anthropic");
   const [anthropicKey, setAnthropicKey] = useState("");
   const [openrouterKey, setOpenrouterKey] = useState("");
@@ -90,11 +97,11 @@ export default function SettingsView() {
   const activeKey = provider === "anthropic" ? anthropicKey : openrouterKey;
 
   return (
-    <Box sx={{ p: 3 }}>
+    <Box sx={{ px: 3, pb: 3 }}>
       <Box sx={{ maxWidth: 480 }}>
-        <Typography variant="h6" sx={{ mb: 3 }}>
-          {t.settings}
-        </Typography>
+        <Box sx={{ height: HEADER_BAND_HEIGHT, display: "flex", alignItems: "center", mb: 2 }}>
+          <Typography variant="h6">{t.settings}</Typography>
+        </Box>
 
         {/* Language */}
         <Box sx={{ mb: 3 }}>
@@ -110,6 +117,51 @@ export default function SettingsView() {
             <ToggleButton value="en" sx={{ px: 2 }}>English</ToggleButton>
             <ToggleButton value="ru" sx={{ px: 2 }}>Русский</ToggleButton>
           </ToggleButtonGroup>
+        </Box>
+
+        {/* WIP limit — a stepper rather than a number field: no browser spinners,
+            no half-typed values, and the bounds are visible as disabled buttons. */}
+        <Box sx={{ mb: 3 }}>
+          <Typography variant="body2" color="text.secondary" sx={{ mb: 1 }}>
+            {t.wipLimitSetting}
+          </Typography>
+          <Box
+            sx={{
+              display: "inline-flex",
+              alignItems: "center",
+              border: 1,
+              borderColor: "divider",
+              borderRadius: 1,
+              overflow: "hidden",
+            }}
+          >
+            <IconButton
+              size="small"
+              onClick={() => setWipLimit(wipLimit - 1)}
+              disabled={wipLimit <= MIN_WIP_LIMIT}
+              sx={{ borderRadius: 0 }}
+              aria-label={t.wipLimitSetting}
+            >
+              <RemoveIcon fontSize="small" />
+            </IconButton>
+            <Typography
+              sx={{ minWidth: 40, textAlign: "center", fontSize: 14, fontWeight: 600 }}
+            >
+              {wipLimit}
+            </Typography>
+            <IconButton
+              size="small"
+              onClick={() => setWipLimit(wipLimit + 1)}
+              disabled={wipLimit >= MAX_WIP_LIMIT}
+              sx={{ borderRadius: 0 }}
+              aria-label={t.wipLimitSetting}
+            >
+              <AddIcon fontSize="small" />
+            </IconButton>
+          </Box>
+          <Typography variant="caption" color="text.secondary" sx={{ display: "block", mt: 0.75 }}>
+            {t.wipLimitSettingHint}
+          </Typography>
         </Box>
       </Box>
 

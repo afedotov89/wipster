@@ -9,6 +9,8 @@ use tauri::Manager;
 use db::connection::DbState;
 
 pub fn run() {
+    install_panic_logger();
+
     tauri::Builder::default()
         .plugin(tauri_plugin_shell::init())
         .plugin(tauri_plugin_global_shortcut::Builder::new().build())
@@ -29,6 +31,7 @@ pub fn run() {
             commands::project_commands::create_project,
             commands::project_commands::update_project,
             commands::project_commands::delete_project,
+            commands::project_commands::project_delete_impact,
             commands::task_commands::list_tasks,
             commands::task_commands::create_task,
             commands::task_commands::get_task,
@@ -42,6 +45,8 @@ pub fn run() {
             commands::task_commands::get_estimate_options,
             commands::task_commands::list_archived_tasks,
             commands::task_commands::set_task_archived,
+            commands::task_commands::get_wip_limit,
+            commands::task_commands::set_wip_limit,
             commands::changelog_commands::undo_last,
             commands::changelog_commands::redo_last,
             commands::changelog_commands::get_changelog,
@@ -51,6 +56,7 @@ pub fn run() {
             commands::agent_commands::get_setting,
             commands::agent_commands::set_setting,
             commands::agent_commands::agent_chat,
+            commands::agent_commands::agent_cancel,
             commands::agent_commands::agent_confirm,
             commands::agent_commands::test_llm_connection,
             commands::autocomplete_commands::ai_autocomplete,
@@ -65,7 +71,31 @@ pub fn run() {
             commands::tracker_commands::tracker_start_auth,
             commands::tracker_commands::tracker_poll_token,
             commands::tracker_commands::tracker_status,
+            commands::tracker_commands::is_bare_tracker_reference,
         ])
         .run(tauri::generate_context!())
         .expect("error while running Wipster");
+}
+
+/// Route panics into the in-app log.
+///
+/// A panic inside a command kills that task without ever answering the
+/// frontend, so the only trace it used to leave was stderr nobody reads while
+/// the UI sat on a spinner.
+fn install_panic_logger() {
+    let previous = std::panic::take_hook();
+    std::panic::set_hook(Box::new(move |info| {
+        let location = info
+            .location()
+            .map(|l| format!("{}:{}", l.file(), l.line()))
+            .unwrap_or_else(|| "unknown location".to_string());
+        let message = info
+            .payload()
+            .downcast_ref::<&str>()
+            .map(|s| s.to_string())
+            .or_else(|| info.payload().downcast_ref::<String>().cloned())
+            .unwrap_or_else(|| "panic".to_string());
+        services::logger::log("error", &format!("[panic] {} at {}", message, location));
+        previous(info);
+    }));
 }

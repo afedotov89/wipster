@@ -79,6 +79,67 @@ pub fn get_last_redoable(conn: &Connection) -> Result<Option<ChangeLogEntry>, ru
     }
 }
 
+/// The changes one Cmd+Z should reverse.
+///
+/// A single action can touch several rows — deleting a project archives its
+/// tasks and removes its sub-projects — and those rows share a `batch_id`.
+/// Undoing half of that would leave the database in a state the user never
+/// asked for, so the whole batch travels together, newest first: the parent
+/// rows come back before the rows that reference them.
+pub fn get_undo_batch(conn: &Connection) -> Result<Vec<ChangeLogEntry>, rusqlite::Error> {
+    let Some(last) = get_last_undoable(conn)? else {
+        return Ok(Vec::new());
+    };
+    match &last.batch_id {
+        None => Ok(vec![last]),
+        Some(batch) => entries_in_batch(conn, batch, false, "DESC"),
+    }
+}
+
+/// The mirror of [`get_undo_batch`]: redo replays the batch in the order it
+/// originally happened.
+pub fn get_redo_batch(conn: &Connection) -> Result<Vec<ChangeLogEntry>, rusqlite::Error> {
+    let Some(last) = get_last_redoable(conn)? else {
+        return Ok(Vec::new());
+    };
+    match &last.batch_id {
+        None => Ok(vec![last]),
+        Some(batch) => entries_in_batch(conn, batch, true, "ASC"),
+    }
+}
+
+fn entries_in_batch(
+    conn: &Connection,
+    batch_id: &str,
+    undone: bool,
+    order: &str,
+) -> Result<Vec<ChangeLogEntry>, rusqlite::Error> {
+    let mut stmt = conn.prepare(&format!(
+        "SELECT id, created_at, actor, action, entity_type, entity_id, \
+         old_value, new_value, undone, batch_id \
+         FROM changelog WHERE batch_id = ?1 AND undone = ?2 \
+         ORDER BY created_at {}, rowid {}",
+        order, order
+    ))?;
+
+    let rows = stmt.query_map(rusqlite::params![batch_id, undone as i32], |row| {
+        Ok(ChangeLogEntry {
+            id: row.get(0)?,
+            created_at: row.get(1)?,
+            actor: row.get(2)?,
+            action: row.get(3)?,
+            entity_type: row.get(4)?,
+            entity_id: row.get(5)?,
+            old_value: row.get(6)?,
+            new_value: row.get(7)?,
+            undone: row.get::<_, i32>(8)? != 0,
+            batch_id: row.get(9)?,
+        })
+    })?;
+
+    rows.collect()
+}
+
 pub fn mark_undone(conn: &Connection, id: &str) -> Result<(), rusqlite::Error> {
     conn.execute("UPDATE changelog SET undone = 1 WHERE id = ?1", [id])?;
     Ok(())
@@ -155,11 +216,18 @@ fn restore_entity(conn: &Connection, entity_type: &str, json_value: &str) -> Res
             let p: serde_json::Value =
                 serde_json::from_str(json_value).map_err(|e| e.to_string())?;
             conn.execute(
-                "INSERT OR REPLACE INTO projects (id, name, \"order\", created_at, updated_at) \
-                 VALUES (?1, ?2, ?3, ?4, ?5)",
+                "INSERT OR REPLACE INTO projects \
+                 (id, name, parent_id, icon, icon_image, icon_mono, color, \"order\", \
+                  created_at, updated_at) \
+                 VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10)",
                 rusqlite::params![
                     p["id"].as_str().unwrap_or_default(),
                     p["name"].as_str().unwrap_or_default(),
+                    p["parent_id"].as_str(),
+                    p["icon"].as_str(),
+                    p["icon_image"].as_str(),
+                    p["icon_mono"].as_bool().unwrap_or(false) as i32,
+                    p["color"].as_str(),
                     p["order"].as_i64().unwrap_or(0),
                     p["created_at"].as_str().unwrap_or_default(),
                     p["updated_at"].as_str().unwrap_or_default(),

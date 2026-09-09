@@ -93,3 +93,14 @@ pub fn tracker_status(db: State<'_, DbState>) -> Result<bool, String> {
     let has_org = get_setting(&conn, "tracker_org_id").is_some();
     Ok(has_token && has_org)
 }
+
+/// Is this text nothing but a tracker reference — a link or an issue key?
+///
+/// The UI asks before auto-filling a freshly created task: a title that is only
+/// a link carries no information the user typed, so the ticket behind it is the
+/// only place the task's real fields can come from. One implementation of the
+/// rule, shared with the fill itself.
+#[tauri::command]
+pub fn is_bare_tracker_reference(text: String) -> bool {
+    crate::services::tracker::is_bare_issue_reference(&text)
+}

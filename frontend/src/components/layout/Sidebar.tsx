@@ -12,6 +12,11 @@ import {
   Menu,
   MenuItem as MuiMenuItem,
   ListItemIcon as MenuItemIcon,
+  Dialog,
+  DialogTitle,
+  DialogContent,
+  DialogActions,
+  Button,
 } from "@mui/material";
 import AddIcon from "@mui/icons-material/Add";
 import PlayCircleIcon from "@mui/icons-material/PlayCircle";
@@ -20,18 +25,28 @@ import EditIcon from "@mui/icons-material/Edit";
 import DeleteOutlineIcon from "@mui/icons-material/DeleteOutline";
 import PaletteIcon from "@mui/icons-material/Palette";
 import SettingsIcon from "@mui/icons-material/Settings";
+import SubdirectoryArrowRightIcon from "@mui/icons-material/SubdirectoryArrowRight";
+import ExpandMoreIcon from "@mui/icons-material/ExpandMore";
+import ChevronRightIcon from "@mui/icons-material/ChevronRight";
 import { useProjectStore } from "@/stores/projectStore";
 import { useTaskStore } from "@/stores/taskStore";
 import { useUiStore } from "@/stores/uiStore";
 import { useI18n } from "@/i18n";
-import { getProjectTaskCounts, type ProjectTaskCounts } from "@/utils/tauri";
-import ProjectAppearancePicker, { getProjectIcon } from "./ProjectAppearancePicker";
+import { getProjectTaskCounts, projectDeleteImpact, type ProjectTaskCounts,
+  type ProjectDeleteImpact } from "@/utils/tauri";
+import ProjectAppearancePicker from "./ProjectAppearancePicker";
+import ProjectIcon from "./ProjectIcon";
+import ProjectDropRow from "./ProjectDropRow";
+
+/** Width of the expand/collapse slot, reserved on every top-level row. */
+const CHEVRON_SLOT = 20;
+import { HEADER_BAND_HEIGHT } from "@/utils/constants";
 
 export default function Sidebar({ titlebarInset }: { titlebarInset: number }) {
   const { projects, selectedProjectId, load, select, add, update, remove } =
     useProjectStore();
   const { view, setView } = useUiStore();
-  const { archivedTasks, loadArchived } = useTaskStore();
+  const { archivedTasks, loadArchived, load: loadTasks } = useTaskStore();
   const { t } = useI18n();
   const [adding, setAdding] = useState(false);
   const [newName, setNewName] = useState("");
@@ -50,6 +65,36 @@ export default function Sidebar({ titlebarInset }: { titlebarInset: number }) {
 
   // Task counts per project
   const [counts, setCounts] = useState<ProjectTaskCounts[]>([]);
+
+  // Which parent is having a sub-project typed into it, and which parents are
+  // collapsed. Collapse is remembered so the sidebar looks the same next launch.
+  // Deleting a project takes its sub-projects and archives its tasks, so the
+  // confirmation states the real numbers before anything happens.
+  const [pendingDelete, setPendingDelete] = useState<
+    { id: string; name: string; impact: ProjectDeleteImpact } | null
+  >(null);
+
+  const [addingChildOf, setAddingChildOf] = useState<string | null>(null);
+  const [childName, setChildName] = useState("");
+  const [collapsed, setCollapsed] = useState<string[]>(() => {
+    try {
+      return JSON.parse(localStorage.getItem("wipster-collapsed-projects") || "[]");
+    } catch {
+      return [];
+    }
+  });
+
+  const toggleCollapsed = (id: string) => {
+    setCollapsed((prev) => {
+      const next = prev.includes(id) ? prev.filter((x) => x !== id) : [...prev, id];
+      try {
+        localStorage.setItem("wipster-collapsed-projects", JSON.stringify(next));
+      } catch {
+        // A remembered collapse is a convenience, never a requirement.
+      }
+      return next;
+    });
+  };
 
   useEffect(() => {
     load().then(() => {
@@ -82,6 +127,16 @@ export default function Sidebar({ titlebarInset }: { titlebarInset: number }) {
     setView("project");
   };
 
+  const handleAddChild = async (parentId: string) => {
+    const name = childName.trim();
+    setAddingChildOf(null);
+    setChildName("");
+    if (!name) return;
+    const project = await add(name, parentId);
+    select(project.id);
+    setView("project");
+  };
+
   const handleContextMenu = (e: React.MouseEvent, projectId: string) => {
     e.preventDefault();
     e.stopPropagation();
@@ -98,9 +153,37 @@ export default function Sidebar({ titlebarInset }: { titlebarInset: number }) {
     setContextMenu(null);
   };
 
-  const handleDelete = () => {
+  const handleDelete = async () => {
     if (!contextMenu) return;
-    remove(contextMenu.projectId);
+    const projectId = contextMenu.projectId;
+    const project = projects.find((p) => p.id === projectId);
+    setContextMenu(null);
+    if (!project) return;
+
+    const impact = await projectDeleteImpact(projectId).catch(() => null);
+    // An empty project has nothing to warn about — deleting it stays one click.
+    if (!impact || (impact.sub_projects === 0 && impact.tasks === 0)) {
+      await remove(projectId);
+      return;
+    }
+    setPendingDelete({ id: projectId, name: project.name, impact });
+  };
+
+  const confirmDelete = async () => {
+    if (!pendingDelete) return;
+    await remove(pendingDelete.id);
+    setPendingDelete(null);
+    // The board may still be showing tasks that just went to the archive.
+    const stillSelected = useProjectStore.getState().selectedProjectId;
+    if (stillSelected) await loadTasks(stillSelected);
+    await loadArchived();
+  };
+
+  const handleAddSubProject = () => {
+    if (!contextMenu) return;
+    setAddingChildOf(contextMenu.projectId);
+    setChildName("");
+    setCollapsed((prev) => prev.filter((id) => id !== contextMenu.projectId));
     setContextMenu(null);
   };
 
@@ -115,6 +198,129 @@ export default function Sidebar({ titlebarInset }: { titlebarInset: number }) {
       update(id, { name: editName.trim() });
     }
     setEditingId(null);
+  };
+
+  // The sidebar shows one level of nesting, but the data model allows any, so a
+  // grandchild is listed alongside the children rather than disappearing.
+  const roots = projects.filter((p) => !p.parent_id || !projects.some((x) => x.id === p.parent_id));
+  const descendantsOf = (rootId: string) => {
+    const found: typeof projects = [];
+    const queue = [rootId];
+    while (queue.length > 0) {
+      const parentId = queue.shift()!;
+      for (const p of projects) {
+        if (p.parent_id === parentId && !found.includes(p)) {
+          found.push(p);
+          queue.push(p.id);
+        }
+      }
+    }
+    return found;
+  };
+
+  /// Open work on a project, counting everything nested under it — the same
+  /// rule the board uses, so the badge matches what the board will show.
+  const openCount = (projectId: string) =>
+    [projectId, ...descendantsOf(projectId).map((p) => p.id)].reduce((total, id) => {
+      const c = counts.find((x) => x.project_id === id);
+      return total + (c ? c.queue + c.doing : 0);
+    }, 0);
+
+  const renderProject = (
+    p: (typeof projects)[number],
+    isChild: boolean,
+    hasChildren: boolean,
+    isCollapsed: boolean,
+  ) => {
+    if (editingId === p.id) {
+      return (
+        <Box key={p.id} sx={{ pl: isChild ? 4 : 2, pr: 2, py: 0.5 }}>
+          <TextField
+            autoFocus
+            fullWidth
+            size="small"
+            value={editName}
+            onChange={(e) => setEditName(e.target.value)}
+            onKeyDown={(e) => {
+              if (e.key === "Enter") commitRename(p.id, p.name);
+              if (e.key === "Escape") setEditingId(null);
+            }}
+            onBlur={() => commitRename(p.id, p.name)}
+            sx={{ "& .MuiInputBase-input": { fontSize: 13 } }}
+          />
+        </Box>
+      );
+    }
+
+    const total = openCount(p.id);
+    return (
+      <ProjectDropRow key={p.id} projectId={p.id}>
+      <ListItemButton
+        selected={view === "project" && selectedProjectId === p.id}
+        onClick={() => {
+          select(p.id);
+          setView("project");
+        }}
+        onDoubleClick={() => {
+          setEditingId(p.id);
+          setEditName(p.name);
+        }}
+        onContextMenu={(e) => handleContextMenu(e, p.id)}
+        sx={{ borderRadius: 1, ...(isChild && { pl: 3 }) }}
+      >
+        {/* One slot of a fixed width on every row: the chevron on a parent, the
+            nesting mark on a child, empty otherwise. Same width either way, so
+            a row that can be expanded does not sit a few pixels left of one
+            that cannot. The chevron is the only thing on the row that does not
+            mean "open this project", so it stops the click reaching the row. */}
+        <Box
+          sx={{
+            width: CHEVRON_SLOT,
+            ml: -0.5,
+            mr: 0.5,
+            flexShrink: 0,
+            display: "flex",
+            alignItems: "center",
+          }}
+        >
+          {isChild ? (
+            <SubdirectoryArrowRightIcon sx={{ fontSize: 14, opacity: 0.35 }} />
+          ) : (
+            hasChildren && (
+              <IconButton
+                size="small"
+                onClick={(e) => {
+                  e.stopPropagation();
+                  toggleCollapsed(p.id);
+                }}
+                sx={{ p: 0, opacity: 0.5 }}
+              >
+                {isCollapsed ? (
+                  <ChevronRightIcon sx={{ fontSize: 16 }} />
+                ) : (
+                  <ExpandMoreIcon sx={{ fontSize: 16 }} />
+                )}
+              </IconButton>
+            )
+          )}
+        </Box>
+        {/* A sub-project keeps its own icon and colour: nesting is shown by the
+            indent and the mark, not by taking its identity away. */}
+        <ListItemIcon sx={{ minWidth: 32 }}>
+          <ProjectIcon project={p} />
+        </ListItemIcon>
+        <ListItemText
+          primary={p.name}
+          primaryTypographyProps={{ fontSize: 13, noWrap: true, ...(isChild && { opacity: 0.85 }) }}
+        />
+        {total > 0 && (
+          <Typography variant="caption" sx={{ fontSize: 11, opacity: 0.5, ml: 0.5, flexShrink: 0 }}>
+            {total}
+          </Typography>
+        )}
+      </ListItemButton>
+      </ProjectDropRow>
+    );
   };
 
   return (
@@ -134,8 +340,8 @@ export default function Sidebar({ titlebarInset }: { titlebarInset: number }) {
         <Box data-tauri-drag-region sx={{ height: titlebarInset, flexShrink: 0 }} />
       )}
 
-      <Box sx={{ p: 2, pt: 1, pb: 1 }}>
-        <Typography variant="subtitle2" color="text.secondary" sx={{ mb: 1 }}>
+      <Box sx={{ px: 2, height: HEADER_BAND_HEIGHT, flexShrink: 0, display: "flex", alignItems: "center" }}>
+        <Typography variant="subtitle2" color="text.secondary">
           {t.appName}
         </Typography>
       </Box>
@@ -179,57 +385,37 @@ export default function Sidebar({ titlebarInset }: { titlebarInset: number }) {
       </Box>
 
       <List dense disablePadding sx={{ flex: 1, overflow: "auto" }}>
-        {projects.map((p) =>
-          editingId === p.id ? (
-            <Box key={p.id} sx={{ px: 2, py: 0.5 }}>
-              <TextField
-                autoFocus
-                fullWidth
-                size="small"
-                value={editName}
-                onChange={(e) => setEditName(e.target.value)}
-                onKeyDown={(e) => {
-                  if (e.key === "Enter") commitRename(p.id, p.name);
-                  if (e.key === "Escape") setEditingId(null);
-                }}
-                onBlur={() => commitRename(p.id, p.name)}
-                sx={{ "& .MuiInputBase-input": { fontSize: 13 } }}
-              />
+        {roots.map((root) => {
+          const children = descendantsOf(root.id);
+          const isCollapsed = collapsed.includes(root.id);
+          return (
+            <Box key={root.id}>
+              {renderProject(root, false, children.length > 0, isCollapsed)}
+              {!isCollapsed && children.map((child) => renderProject(child, true, false, false))}
+              {addingChildOf === root.id && (
+                <Box sx={{ pl: 4, pr: 2, py: 0.5 }}>
+                  <TextField
+                    autoFocus
+                    fullWidth
+                    size="small"
+                    placeholder={t.subProjectName}
+                    value={childName}
+                    onChange={(e) => setChildName(e.target.value)}
+                    onKeyDown={(e) => {
+                      if (e.key === "Enter") handleAddChild(root.id);
+                      if (e.key === "Escape") {
+                        setAddingChildOf(null);
+                        setChildName("");
+                      }
+                    }}
+                    onBlur={() => handleAddChild(root.id)}
+                    sx={{ "& .MuiInputBase-input": { fontSize: 13 } }}
+                  />
+                </Box>
+              )}
             </Box>
-          ) : (
-            <ListItemButton
-              key={p.id}
-              selected={view === "project" && selectedProjectId === p.id}
-              onClick={() => {
-                select(p.id);
-                setView("project");
-              }}
-              onDoubleClick={() => {
-                setEditingId(p.id);
-                setEditName(p.name);
-              }}
-              onContextMenu={(e) => handleContextMenu(e, p.id)}
-              sx={{ mx: 1, borderRadius: 1 }}
-            >
-              <ListItemIcon sx={{ minWidth: 32 }}>
-                {(() => { const Icon = getProjectIcon(p.icon); return <Icon fontSize="small" sx={{ color: p.color || undefined }} />; })()}
-              </ListItemIcon>
-              <ListItemText
-                primary={p.name}
-                primaryTypographyProps={{ fontSize: 13, noWrap: true }}
-              />
-              {(() => {
-                const c = counts.find((x) => x.project_id === p.id);
-                const total = c ? c.queue + c.doing : 0;
-                return total > 0 ? (
-                  <Typography variant="caption" sx={{ fontSize: 11, opacity: 0.5, ml: 0.5, flexShrink: 0 }}>
-                    {total}
-                  </Typography>
-                ) : null;
-              })()}
-            </ListItemButton>
-          )
-        )}
+          );
+        })}
 
         {adding && (
           <Box sx={{ px: 2, py: 0.5 }}>
@@ -258,6 +444,13 @@ export default function Sidebar({ titlebarInset }: { titlebarInset: number }) {
       <Menu
         open={contextMenu !== null}
         onClose={() => setContextMenu(null)}
+        // Rename and "add sub-project" open an inline field that focuses itself
+        // while the menu is still closing. An open menu keeps focus inside
+        // itself and hands it back on close — either one blurs that field the
+        // instant it appears, and its blur handler closes it, so the click
+        // looked like it did nothing at all.
+        disableEnforceFocus
+        disableRestoreFocus
         anchorReference="anchorPosition"
         anchorPosition={
           contextMenu ? { top: contextMenu.mouseY, left: contextMenu.mouseX } : undefined
@@ -270,6 +463,14 @@ export default function Sidebar({ titlebarInset }: { titlebarInset: number }) {
           </MenuItemIcon>
           {t.rename}
         </MuiMenuItem>
+        {contextMenu && !projects.find((p) => p.id === contextMenu.projectId)?.parent_id && (
+          <MuiMenuItem onClick={handleAddSubProject} sx={{ fontSize: 13 }}>
+            <MenuItemIcon sx={{ minWidth: 28 }}>
+              <SubdirectoryArrowRightIcon fontSize="small" />
+            </MenuItemIcon>
+            {t.addSubProject}
+          </MuiMenuItem>
+        )}
         <MuiMenuItem onClick={handleAppearance} sx={{ fontSize: 13 }}>
           <MenuItemIcon sx={{ minWidth: 28 }}>
             <PaletteIcon fontSize="small" />
@@ -283,6 +484,32 @@ export default function Sidebar({ titlebarInset }: { titlebarInset: number }) {
           {t.delete}
         </MuiMenuItem>
       </Menu>
+
+      <Dialog open={pendingDelete !== null} onClose={() => setPendingDelete(null)} maxWidth="xs" fullWidth>
+        <DialogTitle sx={{ fontSize: 16 }}>
+          {pendingDelete ? t.deleteProjectTitle(pendingDelete.name) : ""}
+        </DialogTitle>
+        <DialogContent>
+          {pendingDelete && pendingDelete.impact.sub_projects > 0 && (
+            <Typography variant="body2" color="text.secondary" sx={{ mb: 1 }}>
+              {t.deleteProjectSubProjects(pendingDelete.impact.sub_projects)}
+            </Typography>
+          )}
+          {pendingDelete && pendingDelete.impact.tasks > 0 && (
+            <Typography variant="body2" color="text.secondary">
+              {t.deleteProjectTasks(pendingDelete.impact.tasks)}
+            </Typography>
+          )}
+        </DialogContent>
+        <DialogActions>
+          <Button size="small" onClick={() => setPendingDelete(null)}>
+            {t.cancel}
+          </Button>
+          <Button size="small" color="error" variant="contained" onClick={confirmDelete}>
+            {t.delete}
+          </Button>
+        </DialogActions>
+      </Dialog>
 
       <List dense disablePadding sx={{ borderTop: 1, borderColor: "divider" }}>
         <ListItemButton
@@ -326,10 +553,8 @@ export default function Sidebar({ titlebarInset }: { titlebarInset: number }) {
           <ProjectAppearancePicker
             open
             onClose={() => setAppearanceProjectId(null)}
-            currentIcon={ap.icon}
-            currentColor={ap.color}
-            onChangeIcon={(icon) => update(ap.id, { icon })}
-            onChangeColor={(color) => update(ap.id, { color })}
+            project={ap}
+            onChange={(patch) => update(ap.id, patch)}
           />
         );
       })()}

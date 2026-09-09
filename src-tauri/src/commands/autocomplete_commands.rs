@@ -107,7 +107,7 @@ Rules:
         crate::services::logger::log("info", &format!("[autocomplete] response status={} after {:.1}s", status, start.elapsed().as_secs_f32()));
         if !status.is_success() {
             let body = resp.text().await.unwrap_or_default();
-            crate::services::logger::log("info", &format!("[autocomplete] API error body: {}", &body[..body.len().min(500)]));
+            crate::services::logger::log("info", &format!("[autocomplete] API error body: {}", crate::services::logger::snippet(&body, 500)));
             return Err(format!("API error {}: {}", status, body));
         }
         let j: serde_json::Value = resp.json().await.map_err(|e| e.to_string())?;
@@ -138,7 +138,7 @@ Rules:
         crate::services::logger::log("info", &format!("[autocomplete] response status={} after {:.1}s", status, start.elapsed().as_secs_f32()));
         if !status.is_success() {
             let body = resp.text().await.unwrap_or_default();
-            crate::services::logger::log("info", &format!("[autocomplete] API error body: {}", &body[..body.len().min(500)]));
+            crate::services::logger::log("info", &format!("[autocomplete] API error body: {}", crate::services::logger::snippet(&body, 500)));
             return Err(format!("API error {}: {}", status, body));
         }
         let j: serde_json::Value = resp.json().await.map_err(|e| e.to_string())?;
@@ -146,7 +146,7 @@ Rules:
     };
 
     crate::services::logger::log("info", &format!("[autocomplete] DONE field={}, result_len={}, elapsed={:.1}s, result='{}'",
-        field_name, text.len(), start.elapsed().as_secs_f32(), &text[..text.len().min(100)]));
+        field_name, text.len(), start.elapsed().as_secs_f32(), crate::services::logger::snippet(&text, 100)));
 
     Ok(text)
 }

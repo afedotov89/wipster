@@ -35,8 +35,14 @@ pub fn list_tasks(
     let mut params: Vec<Box<dyn rusqlite::types::ToSql>> = Vec::new();
 
     if let Some(ref pid) = project_id {
-        sql.push_str(" AND project_id = ?");
-        params.push(Box::new(pid.clone()));
+        // Selecting a project selects its sub-projects too, so a parent board
+        // reads as one project. For a project without children this is exactly
+        // the old `project_id = ?`.
+        let (filter, ids) = crate::services::project_tree::subtree_filter(&conn, pid, "project_id");
+        sql.push_str(&format!(" AND {}", filter));
+        for id in ids {
+            params.push(Box::new(id));
+        }
     }
     if let Some(ref s) = status {
         sql.push_str(" AND status = ?");
@@ -136,6 +142,27 @@ pub fn set_task_archived(
     .map_err(|e| e.to_string())?;
 
     Ok(updated)
+}
+
+/// The configured cap on tasks in `doing`.
+#[tauri::command]
+pub fn get_wip_limit(db: State<'_, DbState>) -> Result<usize, String> {
+    let conn = db.0.lock().map_err(|e| e.to_string())?;
+    Ok(wip_guard::wip_limit(&conn))
+}
+
+/// Store a new cap. Returns the value actually stored, which is the requested
+/// one brought inside the guard rails — so the UI always shows what is enforced.
+#[tauri::command]
+pub fn set_wip_limit(db: State<'_, DbState>, limit: usize) -> Result<usize, String> {
+    let conn = db.0.lock().map_err(|e| e.to_string())?;
+    let limit = wip_guard::clamp_wip_limit(limit);
+    conn.execute(
+        "INSERT OR REPLACE INTO settings (key, value) VALUES ('wip_limit', ?1)",
+        [limit.to_string()],
+    )
+    .map_err(|e| e.to_string())?;
+    Ok(limit)
 }
 
 #[tauri::command]
@@ -461,6 +488,13 @@ pub fn get_doing_tasks(db: State<'_, DbState>) -> Result<Vec<Task>, String> {
     let conn = db.0.lock().map_err(|e| e.to_string())?;
     let wip = wip_guard::check_wip(&conn, None);
     Ok(wip.doing_tasks)
+}
+
+/// A task as JSON, for the change log. Shared with project deletion, which has
+/// to record what a task looked like before it was archived.
+pub fn task_json(conn: &rusqlite::Connection, id: &str) -> Result<String, String> {
+    let task = get_task_by_id(conn, id)?;
+    serde_json::to_string(&task).map_err(|e| e.to_string())
 }
 
 fn get_task_by_id(conn: &rusqlite::Connection, id: &str) -> Result<Task, String> {
