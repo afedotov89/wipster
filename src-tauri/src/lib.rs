@@ -20,6 +20,9 @@ pub fn run() {
             let db = db::connection::init_db(app.handle())?;
             app.manage(DbState::new(db));
 
+            // Tools that act on the interface need a window to talk to.
+            services::ui_bridge::attach(app.handle().clone());
+
             if let Err(e) = tray::setup(app) {
                 eprintln!("Tray setup failed (non-fatal): {}", e);
             }
@@ -68,6 +71,7 @@ pub fn run() {
             commands::chat_commands::update_chat_message,
             commands::chat_commands::update_chat_confirmation,
             commands::chat_commands::delete_chat_session,
+            commands::chat_commands::recent_user_prompts,
             commands::tracker_commands::tracker_start_auth,
             commands::tracker_commands::tracker_poll_token,
             commands::tracker_commands::tracker_status,

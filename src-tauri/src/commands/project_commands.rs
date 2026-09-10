@@ -208,7 +208,7 @@ pub fn delete_project(db: State<'_, DbState>, id: String) -> Result<(), String> 
     delete_project_subtree(&conn, &id)
 }
 
-fn delete_project_subtree(conn: &rusqlite::Connection, id: &str) -> Result<(), String> {
+pub(crate) fn delete_project_subtree(conn: &rusqlite::Connection, id: &str) -> Result<(), String> {
     let tx = conn.unchecked_transaction().map_err(|e| e.to_string())?;
 
     let ids = crate::services::project_tree::subtree_ids(conn, id);

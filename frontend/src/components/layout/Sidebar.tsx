@@ -38,9 +38,18 @@ import ProjectAppearancePicker from "./ProjectAppearancePicker";
 import ProjectIcon from "./ProjectIcon";
 import ProjectDropRow from "./ProjectDropRow";
 
-/** Width of the expand/collapse slot, reserved on every top-level row. */
-const CHEVRON_SLOT = 20;
-import { HEADER_BAND_HEIGHT } from "@/utils/constants";
+/**
+ * Width of the expand/collapse slot, reserved on every top-level row.
+ *
+ * It sits in the row's own left padding rather than after it, so a project's
+ * icon lines up with the icons of "In progress", "Archive" and "Settings", and
+ * the nesting has room to be visible.
+ */
+const CHEVRON_SLOT = 16;
+
+/** How far a sub-project sits inside its parent. */
+const NESTING_INDENT = 2.5;
+import { HEADER_BAND_HEIGHT, TRAFFIC_LIGHTS_WIDTH } from "@/utils/constants";
 
 export default function Sidebar({ titlebarInset }: { titlebarInset: number }) {
   const { projects, selectedProjectId, load, select, add, update, remove } =
@@ -234,7 +243,7 @@ export default function Sidebar({ titlebarInset }: { titlebarInset: number }) {
   ) => {
     if (editingId === p.id) {
       return (
-        <Box key={p.id} sx={{ pl: isChild ? 4 : 2, pr: 2, py: 0.5 }}>
+        <Box key={p.id} sx={{ pl: isChild ? NESTING_INDENT + 2 : 2, pr: 2, py: 0.5 }}>
           <TextField
             autoFocus
             fullWidth
@@ -266,7 +275,7 @@ export default function Sidebar({ titlebarInset }: { titlebarInset: number }) {
           setEditName(p.name);
         }}
         onContextMenu={(e) => handleContextMenu(e, p.id)}
-        sx={{ borderRadius: 1, ...(isChild && { pl: 3 }) }}
+        sx={{ borderRadius: 1, pl: isChild ? NESTING_INDENT : 0 }}
       >
         {/* One slot of a fixed width on every row: the chevron on a parent, the
             nesting mark on a child, empty otherwise. Same width either way, so
@@ -276,11 +285,10 @@ export default function Sidebar({ titlebarInset }: { titlebarInset: number }) {
         <Box
           sx={{
             width: CHEVRON_SLOT,
-            ml: -0.5,
-            mr: 0.5,
             flexShrink: 0,
             display: "flex",
             alignItems: "center",
+            justifyContent: "center",
           }}
         >
           {isChild ? (
@@ -335,12 +343,20 @@ export default function Sidebar({ titlebarInset }: { titlebarInset: number }) {
         bgcolor: "var(--sidebar-tint)",
       }}
     >
-      {/* Clears the traffic lights, which float over the sidebar in Overlay mode */}
-      {titlebarInset > 0 && (
-        <Box data-tauri-drag-region sx={{ height: titlebarInset, flexShrink: 0 }} />
-      )}
-
-      <Box sx={{ px: 2, height: HEADER_BAND_HEIGHT, flexShrink: 0, display: "flex", alignItems: "center" }}>
+      {/* The app's name sits in the titlebar band, to the right of the traffic
+          lights that float over it. When the update banner has taken that band
+          the buttons are no longer here, and the name goes back to the edge. */}
+      <Box
+        data-tauri-drag-region
+        sx={{
+          pl: titlebarInset > 0 ? `${TRAFFIC_LIGHTS_WIDTH}px` : 2,
+          pr: 2,
+          height: HEADER_BAND_HEIGHT,
+          flexShrink: 0,
+          display: "flex",
+          alignItems: "center",
+        }}
+      >
         <Typography variant="subtitle2" color="text.secondary">
           {t.appName}
         </Typography>
@@ -518,6 +534,7 @@ export default function Sidebar({ titlebarInset }: { titlebarInset: number }) {
             setView("archive");
             select(null);
           }}
+          sx={{ mx: 1, borderRadius: 1 }}
         >
           <ListItemIcon sx={{ minWidth: 32 }}>
             <Inventory2OutlinedIcon fontSize="small" />
@@ -535,6 +552,7 @@ export default function Sidebar({ titlebarInset }: { titlebarInset: number }) {
         <ListItemButton
           selected={view === "settings"}
           onClick={() => setView("settings")}
+          sx={{ mx: 1, borderRadius: 1 }}
         >
           <ListItemIcon sx={{ minWidth: 32 }}>
             <SettingsIcon fontSize="small" />

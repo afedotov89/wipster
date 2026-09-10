@@ -59,7 +59,7 @@ export default function ProjectView() {
 
   return (
     <Box sx={{ display: "flex", flexDirection: "column", height: "100%" }}>
-      <Box sx={{ px: 2, height: HEADER_BAND_HEIGHT, flexShrink: 0, display: "flex", alignItems: "center", gap: 1 }}>
+      <Box data-tauri-drag-region sx={{ px: 2, height: HEADER_BAND_HEIGHT, flexShrink: 0, display: "flex", alignItems: "center", gap: 1 }}>
         <ProjectIcon project={project} size={28} />
         <Typography variant="h6" sx={{ fontWeight: 700 }}>
           {project.name}

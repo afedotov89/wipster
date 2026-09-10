@@ -99,7 +99,7 @@ export default function SettingsView() {
   return (
     <Box sx={{ px: 3, pb: 3 }}>
       <Box sx={{ maxWidth: 480 }}>
-        <Box sx={{ height: HEADER_BAND_HEIGHT, display: "flex", alignItems: "center", mb: 2 }}>
+        <Box data-tauri-drag-region sx={{ height: HEADER_BAND_HEIGHT, display: "flex", alignItems: "center", mb: 2 }}>
           <Typography variant="h6">{t.settings}</Typography>
         </Box>
 

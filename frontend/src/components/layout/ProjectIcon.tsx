@@ -1,5 +1,7 @@
+import { useEffect, useState } from "react";
 import { Box } from "@mui/material";
 import type { Project } from "@/utils/tauri";
+import { cachedSilhouette, silhouette } from "@/utils/projectIcon";
 import { getProjectIcon } from "./ProjectAppearancePicker";
 
 /**
@@ -19,9 +21,32 @@ export default function ProjectIcon({
   size?: number;
 }) {
   const color = project.color || undefined;
+  const image = project.icon_image;
+  // App logos come as full-bleed squares and look pasted-on with sharp corners.
+  // Rounding is proportional so it reads the same at every size, and it costs
+  // nothing for a glyph on a transparent background: there is no paint in the
+  // corners to clip.
+  const radius = `${Math.round(size * 0.22)}px`;
+  const mono = image ? project.icon_mono : false;
 
-  if (project.icon_image) {
-    if (project.icon_mono) {
+  // The shape to paint. Derived once per picture and cached across the app, so
+  // the sidebar, the board header and the archive share the work — and an image
+  // seen before is ready on the first render, without a flash of the original.
+  const [mask, setMask] = useState(() => (image && mono ? cachedSilhouette(image) : undefined));
+  useEffect(() => {
+    if (!image || !mono) return;
+    let current = true;
+    void silhouette(image).then((shape) => {
+      if (current) setMask(shape);
+    });
+    return () => {
+      current = false;
+    };
+  }, [image, mono]);
+
+  if (image) {
+    if (mono) {
+      const shape = mask ?? image;
       return (
         <Box
           sx={{
@@ -29,8 +54,9 @@ export default function ProjectIcon({
             height: size,
             flexShrink: 0,
             bgcolor: color ?? "text.primary",
-            WebkitMaskImage: `url("${project.icon_image}")`,
-            maskImage: `url("${project.icon_image}")`,
+            borderRadius: radius,
+            WebkitMaskImage: `url("${shape}")`,
+            maskImage: `url("${shape}")`,
             WebkitMaskSize: "contain",
             maskSize: "contain",
             WebkitMaskRepeat: "no-repeat",
@@ -44,9 +70,16 @@ export default function ProjectIcon({
     return (
       <Box
         component="img"
-        src={project.icon_image}
+        src={image}
         alt=""
-        sx={{ width: size, height: size, flexShrink: 0, objectFit: "contain", display: "block" }}
+        sx={{
+          width: size,
+          height: size,
+          flexShrink: 0,
+          objectFit: "contain",
+          display: "block",
+          borderRadius: radius,
+        }}
       />
     );
   }

@@ -5,6 +5,8 @@ use serde_json::{json, Value};
 use std::collections::HashMap;
 use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::{Arc, Mutex, OnceLock};
+
+use crate::services::tools;
 use tokio::sync::Notify;
 
 // ---- Public types ----
@@ -190,552 +192,11 @@ pub fn cancel_run(run_id: &str) -> bool {
 }
 
 /// Execute a confirmed dangerous tool (called after user approves)
+/// Execute a tool the user has confirmed.
 pub async fn execute_confirmed_tool(tool_name: &str, args: &Value, db: &Mutex<Connection>) -> String {
-    execute_tool_async(tool_name, args, db).await
+    crate::services::tools::execute(tool_name, args, db).await
 }
 
-fn is_dangerous(tool_name: &str) -> bool {
-    matches!(tool_name, "delete_task" | "create_tracker_issue")
-}
-
-// ---- Tool definitions ----
-
-fn tool_definitions() -> Vec<Value> {
-    vec![
-        json!({
-            "name": "create_task",
-            "description": "Create a new task",
-            "parameters": {
-                "type": "object",
-                "properties": {
-                    "title": { "type": "string", "description": "Task title" },
-                    "project_id": { "type": "string", "description": "Project ID" },
-                    "priority": { "type": "string", "enum": ["p0","p1","p2","p3"] },
-                    "due": { "type": "string", "description": "Due date YYYY-MM-DD" },
-                    "time_estimate": { "type": "string", "description": "e.g. 1ч, 2д" },
-                    "dod": { "type": "string", "description": "Definition of done" },
-                    "promised_to": { "type": "string" },
-                    "tracker_url": { "type": "string", "description": "Link to tracker issue" },
-                },
-                "required": ["title"]
-            }
-        }),
-        json!({
-            "name": "update_task",
-            "description": "Update fields of an existing task",
-            "parameters": {
-                "type": "object",
-                "properties": {
-                    "task_id": { "type": "string" },
-                    "title": { "type": "string" },
-                    "project_id": { "type": "string", "description": "Move the task to this project (id from list_projects)" },
-                    "priority": { "type": "string", "enum": ["p0","p1","p2","p3"] },
-                    "due": { "type": "string" },
-                    "time_estimate": { "type": "string" },
-                    "dod": { "type": "string" },
-                    "next_step": { "type": "string" },
-                    "promised_to": { "type": "string" },
-                    "comment": { "type": "string" },
-                    "tracker_url": { "type": "string" },
-                },
-                "required": ["task_id"]
-            }
-        }),
-        json!({
-            "name": "move_task",
-            "description": "Change task status (inbox/queue/doing/done)",
-            "parameters": {
-                "type": "object",
-                "properties": {
-                    "task_id": { "type": "string" },
-                    "new_status": { "type": "string", "enum": ["inbox","queue","doing","done"] },
-                },
-                "required": ["task_id", "new_status"]
-            }
-        }),
-        json!({
-            "name": "delete_task",
-            "description": "Delete a task permanently",
-            "parameters": {
-                "type": "object",
-                "properties": { "task_id": { "type": "string" } },
-                "required": ["task_id"]
-            }
-        }),
-        json!({
-            "name": "set_task_archived",
-            "description": "Archive a task (hides it from the board without deleting it) or restore it from the archive. Use for stale tasks nobody intends to do.",
-            "parameters": {
-                "type": "object",
-                "properties": {
-                    "task_id": { "type": "string" },
-                    "archived": { "type": "boolean", "description": "true = move to archive, false = restore to the board" },
-                },
-                "required": ["task_id", "archived"]
-            }
-        }),
-        json!({
-            "name": "search_tasks",
-            "description": "Search tasks by text, project, or status. The text is matched against the title, definition of done, comment, next step and tracker link",
-            "parameters": {
-                "type": "object",
-                "properties": {
-                    "query": { "type": "string", "description": "Text to search in title" },
-                    "project_id": { "type": "string" },
-                    "status": { "type": "string", "enum": ["inbox","queue","doing","done"] },
-                },
-            }
-        }),
-        json!({
-            "name": "list_tasks",
-            "description": "List tasks, optionally filtered by project and/or status. Use when user asks 'what tasks do I have', 'show my tasks', 'what's in progress', etc.",
-            "parameters": {
-                "type": "object",
-                "properties": {
-                    "project_id": { "type": "string", "description": "Filter by project" },
-                    "status": { "type": "string", "enum": ["inbox","queue","doing","done"], "description": "Filter by status" },
-                },
-            }
-        }),
-        json!({
-            "name": "list_projects",
-            "description": "List all projects with their IDs and names",
-            "parameters": { "type": "object", "properties": {} }
-        }),
-        json!({
-            "name": "get_task",
-            "description": "Get full details of a task by ID",
-            "parameters": {
-                "type": "object",
-                "properties": { "task_id": { "type": "string" } },
-                "required": ["task_id"]
-            }
-        }),
-        json!({
-            "name": "read_tracker_issue",
-            "description": "Read a Yandex Tracker issue by key (e.g. QUEUE-123) or URL",
-            "parameters": {
-                "type": "object",
-                "properties": { "issue_key": { "type": "string", "description": "Issue key like QUEUE-123 or full tracker URL" } },
-                "required": ["issue_key"]
-            }
-        }),
-        json!({
-            "name": "create_tracker_issue",
-            "description": "Create a new issue in Yandex Tracker",
-            "parameters": {
-                "type": "object",
-                "properties": {
-                    "queue": { "type": "string", "description": "Queue key, e.g. MYPROJECT" },
-                    "summary": { "type": "string", "description": "Issue title" },
-                    "description": { "type": "string", "description": "Issue description" },
-                    "priority": { "type": "string", "enum": ["p0","p1","p2","p3"], "description": "Priority mapping: p0=critical, p1=high, p2=normal, p3=low" },
-                },
-                "required": ["queue", "summary"]
-            }
-        }),
-        json!({
-            "name": "remember",
-            "description": "Save a fact about the user to persistent memory",
-            "parameters": {
-                "type": "object",
-                "properties": { "fact": { "type": "string" } },
-                "required": ["fact"]
-            }
-        }),
-    ]
-}
-
-// ---- Tool execution ----
-
-fn record(conn: &Connection, action: &str, entity_type: &str, entity_id: &str, old: Option<&str>, new: Option<&str>) {
-    let _ = crate::services::undo_redo::record_change(conn, action, entity_type, entity_id, old, new, None);
-}
-
-/// Full-fidelity snapshot so undo/redo can restore every column, not just the
-/// ones the agent happened to touch.
-fn task_snapshot(conn: &Connection, id: &str) -> Option<String> {
-    use crate::models::task::{task_from_row, TASK_COLUMNS};
-    conn.query_row(
-        &format!("SELECT {} FROM tasks WHERE id = ?1", TASK_COLUMNS),
-        [id],
-        task_from_row,
-    )
-    .ok()
-    .and_then(|task| serde_json::to_string(&task).ok())
-}
-
-fn execute_tool_sync(conn: &Connection, tool_name: &str, args: &Value) -> Result<String, String> {
-    match tool_name {
-        "create_task" => {
-            let title = args["title"].as_str().ok_or("missing title")?;
-            let id = uuid::Uuid::new_v4().to_string();
-            let project_id = args["project_id"].as_str();
-            let status = args["status"].as_str().unwrap_or("queue");
-            let priority = args["priority"].as_str();
-            let due = args["due"].as_str();
-            let time_estimate = args["time_estimate"].as_str();
-            let dod = args["dod"].as_str();
-            let promised_to = args["promised_to"].as_str();
-            let tracker_url = args["tracker_url"].as_str();
-
-            // New tasks land on top of their column, same as the quick-add input.
-            let position: i32 = conn.query_row(
-                "SELECT COALESCE(MIN(position), 0) - 1 FROM tasks \
-                 WHERE project_id IS ?1 AND status = ?2 AND archived_at IS NULL",
-                rusqlite::params![project_id, status],
-                |row| row.get(0),
-            ).unwrap_or(-1);
-
-            conn.execute(
-                "INSERT INTO tasks (id, title, project_id, status, priority, due, time_estimate, dod, promised_to, tracker_url, position) \
-                 VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11)",
-                rusqlite::params![id, title, project_id, status, priority, due, time_estimate, dod, promised_to, tracker_url, position],
-            ).map_err(|e| e.to_string())?;
-
-            let snap = task_snapshot(conn, &id);
-            record(conn, "create", "task", &id, None, snap.as_deref());
-
-            Ok(format!("Created task '{}' (id: {})", title, id))
-        }
-        "update_task" => {
-            let task_id = args["task_id"].as_str().ok_or("missing task_id")?;
-            let old_snap = task_snapshot(conn, task_id);
-
-            let mut updates = Vec::new();
-            let mut params: Vec<Box<dyn rusqlite::types::ToSql>> = Vec::new();
-
-            for field in ["title", "priority", "due", "time_estimate", "dod", "next_step", "promised_to", "comment", "tracker_url"] {
-                if let Some(val) = args[field].as_str() {
-                    updates.push(format!("{} = ?", field));
-                    params.push(Box::new(val.to_string()));
-                }
-            }
-
-            // Moving between projects is a separate case: an id that does not
-            // exist would either break the foreign key or quietly detach the
-            // task from every board, so it is checked before it is written.
-            if let Some(project_id) = args["project_id"].as_str() {
-                let exists = conn
-                    .query_row(
-                        "SELECT EXISTS(SELECT 1 FROM projects WHERE id = ?1)",
-                        [project_id],
-                        |row| row.get::<_, i32>(0),
-                    )
-                    .unwrap_or(0)
-                    == 1;
-                if !exists {
-                    return Err(format!(
-                        "No project with id {}. Call list_projects to get the real ids.",
-                        project_id
-                    ));
-                }
-                updates.push("project_id = ?".to_string());
-                params.push(Box::new(project_id.to_string()));
-            }
-
-            if updates.is_empty() {
-                return Ok("No fields to update".to_string());
-            }
-
-            updates.push("updated_at = datetime('now')".to_string());
-            params.push(Box::new(task_id.to_string()));
-
-            let sql = format!("UPDATE tasks SET {} WHERE id = ?", updates.join(", "));
-            let param_refs: Vec<&dyn rusqlite::types::ToSql> = params.iter().map(|p| p.as_ref()).collect();
-            conn.execute(&sql, param_refs.as_slice()).map_err(|e| e.to_string())?;
-
-            let new_snap = task_snapshot(conn, task_id);
-            record(conn, "update", "task", task_id, old_snap.as_deref(), new_snap.as_deref());
-
-            Ok(format!("Updated task {}", task_id))
-        }
-        "move_task" => {
-            let task_id = args["task_id"].as_str().ok_or("missing task_id")?;
-            let new_status = args["new_status"].as_str().ok_or("missing new_status")?;
-            let old_snap = task_snapshot(conn, task_id);
-
-            if new_status == "doing" {
-                // One WIP rule for the whole app — the guard also knows the
-                // configured limit and that archived tasks do not count.
-                let wip = crate::services::wip_guard::check_wip(conn, Some(task_id));
-                if !wip.allowed {
-                    return Err(format!(
-                        "WIP limit reached ({} tasks in doing). Move another task out first.",
-                        wip.limit,
-                    ));
-                }
-            }
-
-            conn.execute(
-                "UPDATE tasks SET status = ?1, updated_at = datetime('now') WHERE id = ?2",
-                rusqlite::params![new_status, task_id],
-            ).map_err(|e| e.to_string())?;
-
-            let new_snap = task_snapshot(conn, task_id);
-            record(conn, "update", "task", task_id, old_snap.as_deref(), new_snap.as_deref());
-
-            Ok(format!("Moved task {} to {}", task_id, new_status))
-        }
-        "delete_task" => {
-            let task_id = args["task_id"].as_str().ok_or("missing task_id")?;
-            let old_snap = task_snapshot(conn, task_id);
-            conn.execute("DELETE FROM tasks WHERE id = ?1", [task_id]).map_err(|e| e.to_string())?;
-            record(conn, "delete", "task", task_id, old_snap.as_deref(), None);
-            Ok(format!("Deleted task {}", task_id))
-        }
-        "set_task_archived" => {
-            let task_id = args["task_id"].as_str().ok_or("missing task_id")?;
-            let archived = args["archived"].as_bool().ok_or("missing archived")?;
-            let old_snap = task_snapshot(conn, task_id);
-
-            if archived {
-                conn.execute(
-                    "UPDATE tasks SET archived_at = datetime('now'), updated_at = datetime('now') WHERE id = ?1",
-                    [task_id],
-                ).map_err(|e| e.to_string())?;
-            } else {
-                // A task archived mid-flight only returns to 'doing' if WIP allows
-                // it — same guard, same configured limit as everywhere else.
-                let wip_allows = crate::services::wip_guard::check_wip(conn, Some(task_id)).allowed;
-                conn.execute(
-                    "UPDATE tasks SET archived_at = NULL, updated_at = datetime('now'), \
-                     status = CASE WHEN status = 'doing' AND NOT ?2 THEN 'queue' ELSE status END \
-                     WHERE id = ?1",
-                    rusqlite::params![task_id, wip_allows],
-                ).map_err(|e| e.to_string())?;
-            }
-
-            let new_snap = task_snapshot(conn, task_id);
-            record(conn, "update", "task", task_id, old_snap.as_deref(), new_snap.as_deref());
-
-            Ok(format!(
-                "{} task {}",
-                if archived { "Archived" } else { "Restored" },
-                task_id
-            ))
-        }
-        "search_tasks" => {
-            let query = args["query"].as_str().unwrap_or("");
-            let project_id = args["project_id"].as_str();
-            let status = args["status"].as_str();
-
-            let mut sql = "SELECT id, title, status, priority, due, time_estimate FROM tasks WHERE archived_at IS NULL".to_string();
-            let mut params: Vec<Box<dyn rusqlite::types::ToSql>> = Vec::new();
-
-            if !query.is_empty() {
-                // A task "about X" often mentions X in its description or its
-                // ticket link rather than its title.
-                sql.push_str(
-                    " AND (title LIKE ? OR COALESCE(dod, '') LIKE ? OR COALESCE(comment, '') LIKE ? \
-                     OR COALESCE(next_step, '') LIKE ? OR COALESCE(tracker_url, '') LIKE ?)",
-                );
-                let pattern = format!("%{}%", query);
-                for _ in 0..5 {
-                    params.push(Box::new(pattern.clone()));
-                }
-            }
-            if let Some(pid) = project_id {
-                // A project stands for its sub-projects too, exactly as on the board.
-                let (filter, ids) =
-                    crate::services::project_tree::subtree_filter(conn, pid, "project_id");
-                sql.push_str(&format!(" AND {}", filter));
-                for id in ids {
-                    params.push(Box::new(id));
-                }
-            }
-            if let Some(s) = status {
-                sql.push_str(" AND status = ?");
-                params.push(Box::new(s.to_string()));
-            }
-            sql.push_str(" ORDER BY created_at DESC LIMIT 20");
-
-            let mut stmt = conn.prepare(&sql).map_err(|e| e.to_string())?;
-            let param_refs: Vec<&dyn rusqlite::types::ToSql> = params.iter().map(|p| p.as_ref()).collect();
-
-            let tasks: Vec<String> = stmt.query_map(param_refs.as_slice(), |row| {
-                Ok(format!("- {} [{}] {} priority={} due={} est={}",
-                    row.get::<_, String>(0)?,
-                    row.get::<_, String>(2)?,
-                    row.get::<_, String>(1)?,
-                    row.get::<_, Option<String>>(3)?.unwrap_or_default(),
-                    row.get::<_, Option<String>>(4)?.unwrap_or_default(),
-                    row.get::<_, Option<String>>(5)?.unwrap_or_default(),
-                ))
-            }).map_err(|e| e.to_string())?.filter_map(|r| r.ok()).collect();
-
-            if tasks.is_empty() {
-                Ok("No tasks found".to_string())
-            } else {
-                Ok(tasks.join("\n"))
-            }
-        }
-        "list_tasks" => {
-            let project_id = args["project_id"].as_str();
-            let status = args["status"].as_str();
-
-            let mut sql = "SELECT t.id, t.title, t.status, t.priority, t.due, t.time_estimate, \
-                           COALESCE(p.name, '') FROM tasks t \
-                           LEFT JOIN projects p ON t.project_id = p.id WHERE t.archived_at IS NULL".to_string();
-            let mut params: Vec<Box<dyn rusqlite::types::ToSql>> = Vec::new();
-
-            if let Some(pid) = project_id {
-                let (filter, ids) =
-                    crate::services::project_tree::subtree_filter(conn, pid, "t.project_id");
-                sql.push_str(&format!(" AND {}", filter));
-                for id in ids {
-                    params.push(Box::new(id));
-                }
-            }
-            if let Some(s) = status {
-                sql.push_str(" AND t.status = ?");
-                params.push(Box::new(s.to_string()));
-            }
-            sql.push_str(" ORDER BY t.status, t.position ASC");
-
-            let mut stmt = conn.prepare(&sql).map_err(|e| e.to_string())?;
-            let param_refs: Vec<&dyn rusqlite::types::ToSql> = params.iter().map(|p| p.as_ref()).collect();
-
-            let rows: Vec<String> = stmt.query_map(param_refs.as_slice(), |row| {
-                Ok(format!("- {} | {} [{}] proj={} prio={} due={} est={}",
-                    row.get::<_, String>(0)?,
-                    row.get::<_, String>(1)?,
-                    row.get::<_, String>(2)?,
-                    row.get::<_, String>(6)?,
-                    row.get::<_, Option<String>>(3)?.unwrap_or_default(),
-                    row.get::<_, Option<String>>(4)?.unwrap_or_default(),
-                    row.get::<_, Option<String>>(5)?.unwrap_or_default(),
-                ))
-            }).map_err(|e| e.to_string())?.filter_map(|r| r.ok()).collect();
-
-            if rows.is_empty() {
-                Ok("No tasks".to_string())
-            } else {
-                Ok(format!("{} task(s):\n{}", rows.len(), rows.join("\n")))
-            }
-        }
-        "list_projects" => {
-            // The parent's name comes along: without it a sub-project reads as
-            // an unrelated project and the model picks the wrong one.
-            let mut stmt = conn.prepare(
-                "SELECT p.id, p.name, parent.name FROM projects p \
-                 LEFT JOIN projects parent ON p.parent_id = parent.id \
-                 ORDER BY p.\"order\" ASC"
-            ).map_err(|e| e.to_string())?;
-            let rows: Vec<String> = stmt.query_map([], |row| {
-                let parent: Option<String> = row.get(2)?;
-                Ok(format!(
-                    "- {} | {}{}",
-                    row.get::<_, String>(0)?,
-                    row.get::<_, String>(1)?,
-                    parent.map(|p| format!(" (sub-project of {})", p)).unwrap_or_default(),
-                ))
-            }).map_err(|e| e.to_string())?.filter_map(|r| r.ok()).collect();
-            if rows.is_empty() {
-                Ok("No projects".to_string())
-            } else {
-                Ok(rows.join("\n"))
-            }
-        }
-        "get_task" => {
-            let task_id = args["task_id"].as_str().ok_or("missing task_id")?;
-            let task_json = conn.query_row(
-                "SELECT id, title, project_id, status, priority, due, time_estimate, dod, \
-                 next_step, promised_to, comment, checklist FROM tasks WHERE id = ?1",
-                [task_id],
-                |row| {
-                    Ok(json!({
-                        "id": row.get::<_, String>(0)?,
-                        "title": row.get::<_, String>(1)?,
-                        "project_id": row.get::<_, Option<String>>(2)?,
-                        "status": row.get::<_, String>(3)?,
-                        "priority": row.get::<_, Option<String>>(4)?,
-                        "due": row.get::<_, Option<String>>(5)?,
-                        "time_estimate": row.get::<_, Option<String>>(6)?,
-                        "dod": row.get::<_, Option<String>>(7)?,
-                        "next_step": row.get::<_, Option<String>>(8)?,
-                        "promised_to": row.get::<_, Option<String>>(9)?,
-                        "comment": row.get::<_, Option<String>>(10)?,
-                        "checklist": row.get::<_, String>(11)?,
-                    }))
-                },
-            ).map_err(|e| format!("Task not found: {}", e))?;
-            Ok(serde_json::to_string_pretty(&task_json).unwrap_or_default())
-        }
-        "remember" => {
-            let fact = args["fact"].as_str().ok_or("missing fact")?;
-            let existing: String = conn.query_row(
-                "SELECT value FROM settings WHERE key = 'agent_memory'",
-                [], |r| r.get(0),
-            ).unwrap_or_default();
-            let new_memory = if existing.is_empty() {
-                fact.to_string()
-            } else {
-                format!("{}\n{}", existing, fact)
-            };
-            conn.execute(
-                "INSERT OR REPLACE INTO settings (key, value) VALUES ('agent_memory', ?1)",
-                [&new_memory],
-            ).map_err(|e| e.to_string())?;
-            Ok(format!("Remembered: {}", fact))
-        }
-        _ => Err(format!("Unknown tool: {}", tool_name)),
-    }
-}
-
-async fn execute_tool_async(tool_name: &str, args: &Value, db: &Mutex<Connection>) -> String {
-    // Handle async tools (tracker) separately
-    if tool_name == "create_tracker_issue" {
-        let queue = args["queue"].as_str().unwrap_or("");
-        let summary = args["summary"].as_str().unwrap_or("");
-        let description = args["description"].as_str();
-        let priority = args["priority"].as_str();
-
-        let (token, org_id) = {
-            let conn = db.lock().unwrap();
-            let token = conn.query_row("SELECT value FROM settings WHERE key = 'tracker_token'", [], |r| r.get::<_, String>(0)).ok();
-            let org_id = conn.query_row("SELECT value FROM settings WHERE key = 'tracker_org_id'", [], |r| r.get::<_, String>(0)).ok();
-            (token, org_id)
-        };
-
-        return match (token, org_id) {
-            (Some(t), Some(o)) => {
-                match crate::services::tracker::create_issue(&t, &o, queue, summary, description, priority).await {
-                    Ok(issue) => format!("Created tracker issue: {} — {}\nhttps://tracker.yandex.ru/{}", issue.key, issue.summary, issue.key),
-                    Err(e) => format!("Error creating tracker issue: {}", e),
-                }
-            }
-            _ => "Tracker not configured. Go to Settings → Integrations.".to_string(),
-        };
-    }
-
-    if tool_name == "read_tracker_issue" {
-        let issue_key_raw = args["issue_key"].as_str().unwrap_or("");
-        let key = crate::services::tracker::extract_issue_key(issue_key_raw)
-            .unwrap_or_else(|| issue_key_raw.to_string());
-
-        let (token, org_id) = {
-            let conn = db.lock().unwrap();
-            let token = conn.query_row("SELECT value FROM settings WHERE key = 'tracker_token'", [], |r| r.get::<_, String>(0)).ok();
-            let org_id = conn.query_row("SELECT value FROM settings WHERE key = 'tracker_org_id'", [], |r| r.get::<_, String>(0)).ok();
-            (token, org_id)
-        };
-
-        match (token, org_id) {
-            (Some(t), Some(o)) => {
-                match crate::services::tracker::fetch_issue(&t, &o, &key).await {
-                    Ok(issue) => issue.to_context_string(),
-                    Err(e) => format!("Error reading tracker issue: {}", e),
-                }
-            }
-            _ => "Tracker not configured. Go to Settings → Integrations.".to_string(),
-        }
-    } else {
-        // Sync tools — lock DB
-        let conn = db.lock().unwrap();
-        execute_tool_sync(&conn, tool_name, args).unwrap_or_else(|e| format!("Error: {}", e))
-    }
-}
 
 // ---- System prompt ----
 
@@ -750,12 +211,15 @@ fn build_system_prompt(memory: &str) -> String {
         r#"You are Wipster's task management assistant. You have tools to manage tasks, read tracker issues, and remember facts.
 
 Use tools to fulfill user requests. Call multiple tools if needed. After completing actions, summarize what you did.
+
+Your toolbox is larger than the tools listed above. Anything the user can do in the app, you can do too — projects and sub-projects, icons and colours, the theme and the language, the archive, the WIP limit, undo, the tracker, opening a screen or a task. When a request needs something that is not in your current tool list, call find_tools with a few words from the request (for example "цвет проекта", "theme", "archive", "undo") and the matching tools become available immediately. Never tell the user to do it by hand before you have looked.
 {memory}
 Rules:
 - Use the same language as the user
 - Use list_projects to see available projects; use list_tasks to see tasks (filter by project_id/status as needed)
 - Use search_tasks to find a specific task by name
 - When user mentions a tracker link, use read_tracker_issue to get details
+- To find the ticket behind a task, call search_tracker_issues with words from its title, then attach the chosen one with update_task(tracker_url). Never guess issue keys or read them one by one
 - When creating tasks, fill in as many fields as you can infer
 - Stale tasks nobody plans to do belong in the archive (set_task_archived), not the trash — archived tasks are hidden from list_tasks/search_tasks but can be restored
 - Use remember to save personal info the user shares"#,
@@ -887,6 +351,32 @@ async fn call_openai(
     Ok((text, tool_calls, finish))
 }
 
+/// The tool that opens the rest of the catalogue.
+const FIND_TOOLS: &str = "find_tools";
+
+/// What the model may call on this turn: the tools it has been given so far,
+/// plus the one that finds more.
+fn definitions_for(exposed: &[String]) -> Vec<Value> {
+    let mut defs: Vec<Value> = tools::registry()
+        .iter()
+        .filter(|t| exposed.iter().any(|name| name == t.name))
+        .map(|t| t.definition())
+        .collect();
+
+    defs.push(json!({
+        "name": FIND_TOOLS,
+        "description": "Look up abilities that are not in this list yet — projects, appearance, settings, the archive, the tracker, anything the app itself can do. Call it with a few words from the request (\"цвет проекта\", \"theme\", \"archive\") and the matching tools become callable right away.",
+        "parameters": {
+            "type": "object",
+            "properties": {
+                "query": { "type": "string", "description": "A few words describing what you need to do" }
+            },
+            "required": ["query"]
+        }
+    }));
+    defs
+}
+
 // ---- Format tools for each provider ----
 
 fn tools_for_anthropic(defs: &[Value]) -> Vec<Value> {
@@ -939,14 +429,18 @@ pub async fn chat(
         )
     };
 
-    let tool_defs = tool_definitions();
     let client = Client::builder()
         .timeout(std::time::Duration::from_secs(120))
         .build()
         .map_err(|e| e.to_string())?;
 
     let is_anthropic = provider != "openrouter";
-    let formatted_tools = if is_anthropic { tools_for_anthropic(&tool_defs) } else { tools_for_openai(&tool_defs) };
+
+    // The model starts with the handful of tools nearly every request needs,
+    // plus the one that finds the rest. Anything it discovers is added here and
+    // stays for the remainder of the conversation, so a small model never has
+    // to read the whole catalogue to do one thing.
+    let mut exposed: Vec<String> = tools::core().iter().map(|t| t.name.to_string()).collect();
 
     // Build conversation messages
     let mut messages: Vec<Value> = Vec::new();
@@ -964,6 +458,13 @@ pub async fn chat(
     for iteration in 0..max_iterations {
         crate::services::logger::log("info", &format!("[agent] iteration {}, messages: {}", iteration, messages.len()));
         progress.thinking();
+
+        let tool_defs = definitions_for(&exposed);
+        let formatted_tools = if is_anthropic {
+            tools_for_anthropic(&tool_defs)
+        } else {
+            tools_for_openai(&tool_defs)
+        };
 
         let (text, tool_calls, stop_reason) = if is_anthropic {
             call_anthropic(&client, api_key, model, &system, &messages, &formatted_tools).await?
@@ -1009,7 +510,7 @@ pub async fn chat(
         let mut has_dangerous = false;
 
         for (id, name, args) in &tool_calls {
-            if is_dangerous(name) {
+            if tools::is_dangerous(name) {
                 // Don't execute — collect for confirmation
                 has_dangerous = true;
                 let desc = match name.as_str() {
@@ -1035,10 +536,48 @@ pub async fn chat(
                         "role": "tool", "tool_call_id": id, "content": placeholder
                     }));
                 }
+            } else if name == FIND_TOOLS {
+                let query = args["query"].as_str().unwrap_or("");
+                let found = tools::find(query, 6);
+                for tool in &found {
+                    if !exposed.iter().any(|n| n == tool.name) {
+                        exposed.push(tool.name.to_string());
+                    }
+                }
+                let result = if found.is_empty() {
+                    format!("No tools match \"{}\". Try other words.", query)
+                } else {
+                    format!(
+                        "These tools are now available to call directly:\n{}",
+                        found
+                            .iter()
+                            .map(|t| format!("- {}: {}", t.name, t.summary))
+                            .collect::<Vec<_>>()
+                            .join("\n")
+                    )
+                };
+                crate::services::logger::log(
+                    "info",
+                    &format!("[agent] find_tools({}) -> {} tools", query, found.len()),
+                );
+                all_tool_calls.push(ToolCallLog {
+                    tool_name: name.clone(),
+                    arguments: args.clone(),
+                    result: result.clone(),
+                });
+                if is_anthropic {
+                    anthropic_results.push(json!({
+                        "type": "tool_result", "tool_use_id": id, "content": result
+                    }));
+                } else {
+                    messages.push(json!({
+                        "role": "tool", "tool_call_id": id, "content": result
+                    }));
+                }
             } else {
                 // Safe — execute immediately
                 progress.tool(name, args, db);
-                let result = execute_tool_async(name, args, db).await;
+                let result = tools::execute(name, args, db).await;
 
                 crate::services::logger::log("info", &format!("[agent] tool {}({}) -> {}", name, args, crate::services::logger::snippet(&result, 200)));
 
@@ -1122,12 +661,10 @@ pub async fn run_tool_loop_traced(
     allowed_tools: &[&str],
     db: &Mutex<Connection>,
 ) -> Result<(String, Vec<ToolCallLog>), String> {
-    let tool_defs: Vec<Value> = tool_definitions()
-        .into_iter()
-        .filter(|d| {
-            let name = d["name"].as_str().unwrap_or("");
-            allowed_tools.contains(&name) && !is_dangerous(name)
-        })
+    let tool_defs: Vec<Value> = tools::registry()
+        .iter()
+        .filter(|t| allowed_tools.contains(&t.name) && t.danger != tools::Danger::Confirm)
+        .map(|t| t.definition())
         .collect();
 
     let client = Client::builder()
@@ -1179,7 +716,7 @@ pub async fn run_tool_loop_traced(
         // Execute every call — the allowlist guarantees they are safe reads
         let mut anthropic_results: Vec<Value> = Vec::new();
         for (id, name, args) in &tool_calls {
-            let result = execute_tool_async(name, args, db).await;
+            let result = tools::execute(name, args, db).await;
             crate::services::logger::log("info", &format!("[agent:loop] tool {}({}) -> {}", name, args, crate::services::logger::snippet(&result, 200)));
             trace.push(ToolCallLog {
                 tool_name: name.clone(),
@@ -1209,63 +746,37 @@ pub async fn run_tool_loop_traced(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::db::connection::init_test_db;
 
-    /// Two projects and three tasks: one named after the thing, one that only
-    /// mentions it in a comment, one unrelated.
-    fn workspace() -> Connection {
-        let conn = init_test_db();
-        conn.execute_batch(
-            "INSERT INTO projects (id, name) VALUES ('inbox-p', 'Разное'), ('idchess', 'IdChess');
-             INSERT INTO tasks (id, title, project_id, status) VALUES
-               ('t1', 'Созвон по idChess', 'inbox-p', 'queue'),
-               ('t2', 'Разобрать доску', 'inbox-p', 'queue'),
-               ('t3', 'Отчёт за неделю', 'inbox-p', 'queue');
-             UPDATE tasks SET comment = 'обсудили idChess и сроки' WHERE id = 't2';",
-        )
-        .unwrap();
-        conn
-    }
-
-    fn project_of(conn: &Connection, task_id: &str) -> Option<String> {
-        conn.query_row("SELECT project_id FROM tasks WHERE id = ?1", [task_id], |r| r.get(0))
-            .unwrap()
-    }
-
+    /// The model must always be able to reach the rest of the catalogue, and
+    /// must not be handed the catalogue itself.
     #[test]
-    fn update_task_moves_a_task_to_another_project() {
-        let conn = workspace();
-        let result = execute_tool_sync(
-            &conn,
-            "update_task",
-            &json!({ "task_id": "t1", "project_id": "idchess" }),
-        )
-        .unwrap();
-        assert!(result.contains("t1"), "{}", result);
-        assert_eq!(project_of(&conn, "t1").as_deref(), Some("idchess"));
+    fn the_first_turn_offers_the_core_tools_and_a_way_to_find_the_others() {
+        let exposed: Vec<String> = tools::core().iter().map(|t| t.name.to_string()).collect();
+        let defs = definitions_for(&exposed);
+        let names: Vec<&str> = defs.iter().filter_map(|d| d["name"].as_str()).collect();
+
+        assert!(names.contains(&FIND_TOOLS), "find_tools must always be offered");
+        assert!(names.contains(&"list_tasks"));
+        assert_eq!(names.len(), exposed.len() + 1, "only the core tools plus find_tools");
+
+        // Everything else stays out of the prompt until it is asked for.
+        assert!(!names.contains(&"set_appearance"));
+        assert!(!names.contains(&"delete_project"));
     }
 
+    /// What the loop does when the model calls find_tools: those tools become
+    /// callable, with their real schemas.
     #[test]
-    fn a_project_that_does_not_exist_is_refused() {
-        let conn = workspace();
-        let error = execute_tool_sync(
-            &conn,
-            "update_task",
-            &json!({ "task_id": "t1", "project_id": "does-not-exist" }),
-        )
-        .unwrap_err();
-        assert!(error.contains("No project"), "{}", error);
-        // The task stays exactly where it was.
-        assert_eq!(project_of(&conn, "t1").as_deref(), Some("inbox-p"));
-    }
-
-    #[test]
-    fn search_looks_beyond_the_title() {
-        let conn = workspace();
-        let found = execute_tool_sync(&conn, "search_tasks", &json!({ "query": "idChess" })).unwrap();
-        assert!(found.contains("t1"), "the title match is missing: {}", found);
-        assert!(found.contains("t2"), "the comment match is missing: {}", found);
-        assert!(!found.contains("t3"), "an unrelated task was returned: {}", found);
+    fn a_found_tool_becomes_callable() {
+        let mut exposed: Vec<String> = tools::core().iter().map(|t| t.name.to_string()).collect();
+        for tool in tools::find("поменяй тему оформления", 6) {
+            exposed.push(tool.name.to_string());
+        }
+        let names: Vec<String> = definitions_for(&exposed)
+            .iter()
+            .filter_map(|d| d["name"].as_str().map(str::to_string))
+            .collect();
+        assert!(names.iter().any(|n| n == "set_appearance"));
     }
 
     #[test]

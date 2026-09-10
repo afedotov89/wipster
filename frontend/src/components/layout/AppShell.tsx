@@ -46,15 +46,12 @@ export default function AppShell({ titlebarInset }: Props) {
       {/*
         `titleBarStyle: "Overlay"` lets the webview fill the whole window, so the
         band behind the traffic lights is painted by the app instead of the system
-        grey. The sidebar keeps running to the top edge (no colour seam under the
-        lights) and carries its own spacer; the content column gets a matching
-        drag strip over the theme background.
+        grey. Both columns run to the top edge and put their title in that band —
+        the sidebar's clears the buttons, the content column is far enough right
+        that nothing floats over it.
       */}
       <Sidebar titlebarInset={titlebarInset} />
       <Box sx={{ flex: 1, display: "flex", flexDirection: "column", overflow: "hidden" }}>
-        {titlebarInset > 0 && (
-          <Box data-tauri-drag-region sx={{ height: titlebarInset, flexShrink: 0 }} />
-        )}
         <Box sx={{ display: "flex", flex: 1, minHeight: 0, overflow: "hidden" }}>
           <Box sx={{ flex: 1, overflow: "auto" }} onClick={handleBackgroundClick}>
             {view === "settings" ? (

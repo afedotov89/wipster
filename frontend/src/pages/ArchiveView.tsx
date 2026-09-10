@@ -38,7 +38,7 @@ export default function ArchiveView() {
 
   return (
     <Box sx={{ px: 3, pb: 3, maxWidth: 720 }}>
-      <Box sx={{ height: HEADER_BAND_HEIGHT, display: "flex", alignItems: "center", gap: 1.5 }}>
+      <Box data-tauri-drag-region sx={{ height: HEADER_BAND_HEIGHT, display: "flex", alignItems: "center", gap: 1.5 }}>
         <Inventory2OutlinedIcon sx={{ fontSize: 24, opacity: 0.6 }} />
         <Typography variant="h6" sx={{ fontWeight: 700 }}>
           {t.archive}

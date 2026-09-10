@@ -4,6 +4,7 @@ import SystemUpdateIcon from "@mui/icons-material/SystemUpdate";
 import { buildMuiTheme } from "./theme/builder";
 import { useThemeStore } from "./theme/store";
 import { useSettingsStore } from "./stores/settingsStore";
+import { useAiUiCommands } from "./stores/aiUiCommands";
 import AppShell from "./components/layout/AppShell";
 import { useUndoRedo } from "./hooks/useUndoRedo";
 import { useAutoUpdater } from "./hooks/useAutoUpdater";
@@ -85,6 +86,8 @@ export default function App() {
 
   useEffect(() => { hydrateFromDb(); }, [hydrateFromDb]);
   useEffect(() => { hydrateSettings(); }, [hydrateSettings]);
+  // Lets the assistant switch views, open a task or change the theme.
+  useAiUiCommands();
 
   return (
     <ThemeProvider theme={muiTheme}>

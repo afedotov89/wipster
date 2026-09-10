@@ -44,9 +44,7 @@ export const useAiFillStore = create<AiFillState>((set, get) => ({
         try {
           const items = JSON.parse(result.checklist);
           if (Array.isArray(items) && items.length > 0) {
-            const { tasks, archivedTasks } = useTaskStore.getState();
-            const existing =
-              tasks.find((t) => t.id === taskId) ?? archivedTasks.find((t) => t.id === taskId);
+            const existing = useTaskStore.getState().findTask(taskId);
             const current = JSON.parse(existing?.checklist || "[]");
             updates.checklist = JSON.stringify([...current, ...items]);
           }

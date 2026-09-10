@@ -214,6 +214,9 @@ export default function ProjectAppearancePicker({ open, onClose, project, onChan
               onClick={() => fileRef.current?.click()}
               sx={{
                 ...ICON_TILE,
+                // Pinned to the last column: the upload tile is not one of the
+                // icons, so it sits at the edge instead of trailing the row.
+                gridColumn: ICON_COLUMNS,
                 borderStyle: "dashed",
                 borderColor: "divider",
                 color: "text.secondary",

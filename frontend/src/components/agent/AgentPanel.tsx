@@ -22,17 +22,20 @@ import ArrowBackIcon from "@mui/icons-material/ArrowBack";
 import CloseIcon from "@mui/icons-material/Close";
 import StopCircleIcon from "@mui/icons-material/StopCircle";
 import CheckIcon from "@mui/icons-material/Check";
+import Chip from "@mui/material/Chip";
 import BlockIcon from "@mui/icons-material/Block";
 import WarningAmberIcon from "@mui/icons-material/WarningAmber";
 import Markdown from "react-markdown";
 import remarkGfm from "remark-gfm";
 import { useTaskStore } from "@/stores/taskStore";
+import { useSettingsStore } from "@/stores/settingsStore";
 import { useProjectStore } from "@/stores/projectStore";
 import { useUiStore } from "@/stores/uiStore";
 import { useChatStore } from "@/stores/chatStore";
 import { useI18n } from "@/i18n";
 import { appLog } from "@/stores/logStore";
 import * as api from "@/utils/tauri";
+import { suggestPrompts } from "@/utils/promptSuggestions";
 
 /// One line of the live activity read-out while the agent works.
 type ActivityStep = Pick<api.AgentProgress, "seq" | "phase" | "tool" | "variant" | "detail">;
@@ -59,9 +62,10 @@ export default function AgentPanel() {
   const runIdRef = useRef<string | null>(null);
   const inputRef = useRef<HTMLInputElement>(null);
   const chatEndRef = useRef<HTMLDivElement>(null);
-  const { load, loadDoing } = useTaskStore();
-  const { selectedProjectId } = useProjectStore();
-  const { selectedTaskId } = useUiStore();
+  const { load, loadDoing, tasks, doingTasks, archivedTasks, findTask } = useTaskStore();
+  const { selectedProjectId, projects } = useProjectStore();
+  const { selectedTaskId, detailOpen, view } = useUiStore();
+  const wipLimit = useSettingsStore((s) => s.wipLimit);
   const { t, locale } = useI18n();
   const {
     sessions, currentSessionId, messages,
@@ -70,12 +74,41 @@ export default function AgentPanel() {
   } = useChatStore();
 
   const [initialized, setInitialized] = useState(false);
+  // Context for the hints that does not live in a store: whether the tracker is
+  // connected, and the commands this user types most often.
+  const [trackerReady, setTrackerReady] = useState(false);
+  const [recentPrompts, setRecentPrompts] = useState<string[]>([]);
+  // Rotates so the "you can ask the app itself" tip is a different one each time.
+  const [appTipIndex, setAppTipIndex] = useState(() => {
+    const stored = Number(localStorage.getItem("wipster-app-tip") ?? 0);
+    return Number.isFinite(stored) ? stored : 0;
+  });
 
   useEffect(() => {
     if (visible && !initialized) {
       loadSessions().then(() => setInitialized(true));
     }
   }, [visible, initialized, loadSessions]);
+
+  // Refreshed whenever the panel opens on an empty chat, so a command used
+  // yesterday can be offered today.
+  useEffect(() => {
+    if (!visible || messages.length > 0) return;
+    void api.trackerStatus().then(setTrackerReady).catch(() => setTrackerReady(false));
+    void api
+      .recentUserPrompts(8)
+      .then((prompts) => setRecentPrompts(Array.isArray(prompts) ? prompts : []))
+      .catch(() => setRecentPrompts([]));
+    setAppTipIndex((previous) => {
+      const next = previous + 1;
+      try {
+        localStorage.setItem("wipster-app-tip", String(next));
+      } catch {
+        // Rotation is a nicety; losing it costs nothing.
+      }
+      return next;
+    });
+  }, [visible, messages.length]);
 
   useEffect(() => {
     chatEndRef.current?.scrollIntoView({ behavior: "smooth" });
@@ -266,6 +299,29 @@ export default function AgentPanel() {
     await addMessage("assistant", locale === "ru" ? "Отменено." : "Cancelled.");
   };
 
+  // Commands worth offering for what is on screen right now. Only computed for
+  // an empty chat: once a conversation has started, the context is the
+  // conversation, not the board.
+  const suggestions =
+    messages.length === 0 && !loading
+      ? suggestPrompts(
+          {
+            view,
+            task: (detailOpen && findTask(selectedTaskId)) || null,
+            project: projects.find((p) => p.id === selectedProjectId) ?? null,
+            tasks,
+            doingTasks,
+            archivedCount: archivedTasks.length,
+            wipLimit,
+            today: new Date().toISOString().slice(0, 10),
+            trackerReady,
+            recentPrompts,
+            appTipIndex,
+          },
+          t,
+        )
+      : [];
+
   /// Steps as the user reads them: past tense once done, present while running.
   const activity = (steps.length > 0
     ? steps
@@ -428,6 +484,35 @@ export default function AgentPanel() {
                 <Typography variant="body2" color="text.secondary" sx={{ fontSize: 12 }}>
                   {locale === "ru" ? "Спросите что угодно о ваших задачах" : "Ask anything about your tasks"}
                 </Typography>
+                {suggestions.length > 0 && (
+                  <Box
+                    sx={{
+                      mt: 2,
+                      display: "flex",
+                      flexWrap: "wrap",
+                      gap: 0.75,
+                      justifyContent: "center",
+                    }}
+                  >
+                    {suggestions.map((suggestion) => (
+                      <Chip
+                        key={suggestion.id}
+                        label={suggestion.label}
+                        size="small"
+                        variant="outlined"
+                        clickable
+                        title={suggestion.prompt}
+                        onClick={() => {
+                          // Put it in the field rather than send it: a hint is a
+                          // starting point the user can edit before committing.
+                          setInput(suggestion.prompt);
+                          inputRef.current?.focus();
+                        }}
+                        sx={{ fontSize: 11, height: 24, borderColor: "var(--overlay-3)" }}
+                      />
+                    ))}
+                  </Box>
+                )}
               </Box>
             )}
             {messages.map((msg, i) => (
@@ -643,7 +728,11 @@ export default function AgentPanel() {
               InputProps={{
                 sx: { fontSize: 13, alignItems: "center" },
                 endAdornment: (
-                  <InputAdornment position="end">
+                  // Pulled out by the icon button's own padding, so the glyph
+                  // sits as far from the right edge as the text does from the
+                  // left — measured, not guessed — while the click target keeps
+                  // its full size.
+                  <InputAdornment position="end" sx={{ mr: "-5px" }}>
                     {loading ? (
                       <IconButton
                         size="small"

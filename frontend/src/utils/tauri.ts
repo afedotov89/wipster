@@ -336,6 +336,10 @@ export interface AiFillResult {
 export const aiFillTask = (taskId: string) =>
   invoke<AiFillResult>("ai_fill_task", { taskId });
 
+/** Commands the user types most often, for the agent panel's hints. */
+export const recentUserPrompts = (limit?: number) =>
+  invoke<string[]>("recent_user_prompts", { limit });
+
 export const getBackendLogs = () => invoke<string[]>("get_backend_logs");
 
 export const agentConfirm = (toolCalls: PendingToolCall[]) =>

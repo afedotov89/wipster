@@ -52,8 +52,14 @@ export const TITLEBAR_HEIGHT = 28;
 export const TRAFFIC_LIGHTS_WIDTH = 80;
 
 /**
- * Height of the band each column puts its title in, directly under the
- * titlebar. Both the sidebar and the page centre their heading inside it, so
- * the two titles sit on one line no matter how far apart their font sizes are.
+ * Height of the band each column puts its title in.
+ *
+ * It *is* the titlebar band: the window buttons float over its left end, the
+ * titles sit beside them, and both columns centre their heading in it — so the
+ * two titles share a line and the strip beside the window buttons is not left
+ * empty. Anything under the buttons has to start after
+ * {@link TRAFFIC_LIGHTS_WIDTH}, and its height has to leave a project's 28px
+ * icon room to breathe — the window buttons are positioned to match in
+ * `tauri.conf.json`, so the two move together.
  */
-export const HEADER_BAND_HEIGHT = 44;
+export const HEADER_BAND_HEIGHT = 52;

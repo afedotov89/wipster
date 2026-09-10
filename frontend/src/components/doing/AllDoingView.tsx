@@ -49,7 +49,7 @@ export default function AllDoingView() {
 
   return (
     <Box sx={{ px: 3, pb: 3 }}>
-      <Box sx={{ height: HEADER_BAND_HEIGHT, display: "flex", alignItems: "center", gap: 2, mb: 2 }}>
+      <Box data-tauri-drag-region sx={{ height: HEADER_BAND_HEIGHT, display: "flex", alignItems: "center", gap: 2, mb: 2 }}>
         <Typography variant="h6" sx={{ fontWeight: 700 }}>
           {t.inProgress}
         </Typography>

@@ -23,6 +23,15 @@ interface TaskState {
   setArchived: (id: string, archived: boolean) => Promise<void>;
   move: (taskId: string, newStatus: TaskStatus, swapTaskId?: string) => Promise<MoveTaskResult>;
   getByStatus: (status: TaskStatus) => Task[];
+  /**
+   * A task by id, wherever it currently lives.
+   *
+   * The board's tasks, the ones in progress and the archived ones are three
+   * separate lists, and which of them holds a task depends on the screen: on
+   * "In progress" no project is loaded, so `tasks` is empty and every lookup
+   * that only searched it came back with nothing.
+   */
+  findTask: (id: string | null | undefined) => Task | undefined;
 }
 
 export const useTaskStore = create<TaskState>((set, get) => ({
@@ -124,4 +133,14 @@ export const useTaskStore = create<TaskState>((set, get) => ({
   },
 
   getByStatus: (status) => get().tasks.filter((t) => t.status === status),
+
+  findTask: (id) => {
+    if (!id) return undefined;
+    const { tasks, doingTasks, archivedTasks } = get();
+    return (
+      tasks.find((t) => t.id === id) ??
+      doingTasks.find((t) => t.id === id) ??
+      archivedTasks.find((t) => t.id === id)
+    );
+  },
 }));

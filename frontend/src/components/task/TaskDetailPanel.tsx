@@ -249,14 +249,12 @@ function ChecklistSortable({ items, onReorder, onToggle, onRemove, onEditText }:
 
 export default function TaskDetailPanel() {
   const { selectedTaskId, closeDetail } = useUiStore();
-  const { tasks, archivedTasks, update } = useTaskStore();
+  const { update, findTask } = useTaskStore();
   const { projects } = useProjectStore();
   const { refresh } = useHistoryStore();
   const { t, locale } = useI18n();
 
-  const task =
-    tasks.find((t) => t.id === selectedTaskId) ??
-    archivedTasks.find((t) => t.id === selectedTaskId);
+  const task = findTask(selectedTaskId);
 
   const [title, setTitle] = useState("");
   const [dod, setDod] = useState("");

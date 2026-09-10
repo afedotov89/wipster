@@ -196,3 +196,33 @@ pub fn delete_chat_session(
         .map_err(|e| e.to_string())?;
     Ok(())
 }
+
+/// The commands this user actually types, most-repeated first.
+///
+/// A hint built from the user's own history beats any list invented in advance:
+/// if they ask the same thing every morning, that is the button they want.
+/// Grouping is case-insensitive so "Что дальше?" and "что дальше?" are one
+/// command, and the length window keeps out both accidental keystrokes and
+/// essays nobody will click a second time.
+#[tauri::command]
+pub fn recent_user_prompts(db: State<'_, DbState>, limit: Option<i32>) -> Result<Vec<String>, String> {
+    let conn = db.0.lock().map_err(|e| e.to_string())?;
+    let mut stmt = conn
+        .prepare(
+            "SELECT text, COUNT(*) AS uses, MAX(created_at) AS last_used \
+             FROM chat_messages \
+             WHERE role = 'user' AND LENGTH(TRIM(text)) BETWEEN 8 AND 120 \
+             GROUP BY LOWER(TRIM(text)) \
+             ORDER BY uses DESC, last_used DESC \
+             LIMIT ?1",
+        )
+        .map_err(|e| e.to_string())?;
+
+    let prompts = stmt
+        .query_map([limit.unwrap_or(8)], |row| row.get::<_, String>(0))
+        .map_err(|e| e.to_string())?
+        .filter_map(|r| r.ok())
+        .collect();
+
+    Ok(prompts)
+}

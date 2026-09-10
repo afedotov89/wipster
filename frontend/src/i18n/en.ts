@@ -142,6 +142,58 @@ const en = {
   trackerOrgId: "Organization ID",
   trackerHelp: "Tracker issue links in any task field will auto-enrich AI context",
 
+  // Agent prompt hints — label on the chip, command sent to the agent
+  /// The "the app itself is yours to ask" tips — chip and command.
+  appTipLabel: (tip: string) =>
+    ({
+      theme: "Change the theme",
+      language: "Switch to Russian",
+      wip: "The WIP limit",
+      archive: "Open the archive",
+      undo: "Undo the last thing",
+      history: "What changed?",
+    })[tip] ?? tip,
+  appTipCommand: (tip: string) =>
+    ({
+      theme: "Show me the themes and switch to a calmer one",
+      language: "Switch the interface to Russian",
+      wip: "What is the WIP limit right now? Tell me whether it is worth changing",
+      archive: "Open the archive and tell me what has piled up there",
+      undo: "Undo my last change",
+      history: "Show me what changed recently",
+    })[tip] ?? tip,
+  hintFindTicket: "Find the ticket",
+  hintFindTicketCmd:
+    "Find the tracker issue behind this task by its title and attach the link to it",
+  hintFillTracker: "From the tracker",
+  hintFillTrackerCmd: "Fill this task's empty fields from its tracker issue",
+  hintBreakDown: "Break down",
+  hintBreakDownCmd: "Break this task into 3-4 short steps and put them in the checklist",
+  hintEstimate: "Estimate",
+  hintEstimateCmd:
+    "Estimate how long this task takes, based on similar finished tasks, and save it",
+  hintDod: "Definition of done",
+  hintDodCmd: "Write a one-line definition of done for this task and save it",
+  hintUnloadWip: "Unload",
+  hintUnloadWipCmd: (inProgress: number, limit: number) =>
+    `${inProgress} tasks in progress against a limit of ${limit}. Look at them and suggest what to put back in the queue`,
+  hintDoingSummary: "Where I stand",
+  hintDoingSummaryCmd: "Sum up briefly what I have in progress and what is blocking it",
+  hintOverdue: "Overdue",
+  hintOverdueCmd:
+    "Show this project's overdue tasks and suggest what to reschedule and what to do today",
+  hintSeedProject: "Seed it",
+  hintSeedProjectCmd: (project: string) =>
+    `The "${project}" project is empty. Suggest the first 5 tasks and create them`,
+  hintFillQueue: "Fill in the queue",
+  hintFillQueueCmd:
+    "Take the top 5 queued tasks with no estimate or definition of done and fill those fields in",
+  hintWhatNext: "What next?",
+  hintWhatNextCmd: "Look at this project's tasks and suggest what to start next, and why",
+  hintReviewArchive: "Review the archive",
+  hintReviewArchiveCmd:
+    "Look through the archive and say what is worth bringing back and what is dead",
+
   // Agent
   agent: "Agent",
   agentThinking: "Thinking\u2026",

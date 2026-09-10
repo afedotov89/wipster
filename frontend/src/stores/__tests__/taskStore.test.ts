@@ -6,6 +6,7 @@ vi.mock("@tauri-apps/api/core", () => ({
 
 import { invoke } from "@tauri-apps/api/core";
 import { useTaskStore } from "../taskStore";
+import type { Task } from "@/utils/tauri";
 
 const mockedInvoke = vi.mocked(invoke);
 
@@ -147,5 +148,50 @@ describe("taskStore", () => {
 
     const queue = useTaskStore.getState().getByStatus("queue");
     expect(queue).toHaveLength(2);
+  });
+});
+
+describe("finding a task wherever it lives", () => {
+  const task = (id: string, over: Partial<Task> = {}): Task => ({
+    id,
+    title: id,
+    project_id: "p1",
+    status: "queue",
+    priority: null,
+    energy: null,
+    due: null,
+    estimate: null,
+    time_estimate: null,
+    tags: "",
+    dod: null,
+    checklist: "",
+    next_step: null,
+    return_ref: null,
+    promised_to: null,
+    comment: null,
+    tracker_url: null,
+    position: null,
+    completed_at: null,
+    archived_at: null,
+    created_at: "",
+    updated_at: "",
+    ...over,
+  });
+
+  it("looks in all three lists, not just the board's", () => {
+    useTaskStore.setState({
+      tasks: [task("board")],
+      doingTasks: [task("doing", { status: "doing" })],
+      archivedTasks: [task("archived", { archived_at: "2026-09-01" })],
+    });
+
+    const { findTask } = useTaskStore.getState();
+    expect(findTask("board")?.id).toBe("board");
+    // "In progress" loads no project, so this one is only in doingTasks —
+    // the case where the detail panel used to say "no task selected".
+    expect(findTask("doing")?.id).toBe("doing");
+    expect(findTask("archived")?.id).toBe("archived");
+    expect(findTask("nope")).toBeUndefined();
+    expect(findTask(null)).toBeUndefined();
   });
 });
