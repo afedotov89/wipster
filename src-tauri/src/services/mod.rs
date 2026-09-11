@@ -9,3 +9,5 @@ pub mod wip_guard;
 pub mod project_tree;
 pub mod tools;
 pub mod ui_bridge;
+pub mod gitlab;
+pub mod issues;

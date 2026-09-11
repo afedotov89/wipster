@@ -2,22 +2,41 @@ import { createTheme, Theme } from "@mui/material/styles";
 import type { ThemeDef } from "./themes";
 import { SCENES } from "./scenes";
 
-export function buildMuiTheme(def: ThemeDef): Theme {
+/**
+ * The app's own material: the scene's texture layers over the ambient bloom.
+ *
+ * The window is painted with it, and so is anything that has to read as a piece
+ * of this app rather than a plain grey sheet dropped on top of it — the
+ * settings panel above all. One recipe, so the two can never drift apart.
+ *
+ * Ambient gradients sit underneath the textures, each with its own
+ * position/size/repeat so the four lists stay the same length.
+ */
+export function appSurface(def: ThemeDef) {
   const layers = SCENES[def.id] ?? [];
 
-  const imageList: string[] = layers.map((l) => l.image);
-  const positionList: string[] = layers.map((l) => l.position ?? "center");
-  const sizeList: string[] = layers.map((l) => l.size ?? "cover");
-  const repeatList: string[] = layers.map((l) => l.repeat ?? "no-repeat");
+  const imageList = [...layers.map((l) => l.image), ...def.ambient];
+  const positionList = [
+    ...layers.map((l) => l.position ?? "center"),
+    ...def.ambient.map(() => "center"),
+  ];
+  const sizeList = [...layers.map((l) => l.size ?? "cover"), ...def.ambient.map(() => "auto")];
+  const repeatList = [
+    ...layers.map((l) => l.repeat ?? "no-repeat"),
+    ...def.ambient.map(() => "no-repeat"),
+  ];
 
-  // Ambient gradients sit underneath, each with its own position/size/repeat so
-  // the four lists stay the same length
-  for (const gradient of def.ambient) {
-    imageList.push(gradient);
-    positionList.push("center");
-    sizeList.push("auto");
-    repeatList.push("no-repeat");
-  }
+  return {
+    backgroundColor: def.bgDefault,
+    backgroundImage: imageList.join(", "),
+    backgroundPosition: positionList.join(", "),
+    backgroundSize: sizeList.join(", "),
+    backgroundRepeat: repeatList.join(", "),
+  };
+}
+
+export function buildMuiTheme(def: ThemeDef): Theme {
+  const surface = appSurface(def);
 
   return createTheme({
     palette: {
@@ -74,11 +93,7 @@ export function buildMuiTheme(def: ThemeDef): Theme {
           body: {
             userSelect: "none",
             cursor: "default",
-            backgroundColor: def.bgDefault,
-            backgroundImage: imageList.join(", "),
-            backgroundPosition: positionList.join(", "),
-            backgroundSize: sizeList.join(", "),
-            backgroundRepeat: repeatList.join(", "),
+            ...surface,
             backgroundAttachment: "fixed",
             transition: "background-color 400ms ease, background-image 400ms ease, color 400ms ease",
           },

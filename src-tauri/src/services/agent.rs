@@ -127,12 +127,13 @@ fn progress_hint(
             task_title(),
         ),
         "search_tasks" => (None, arg("query")),
-        "read_tracker_issue" => (
+        "read_issue" => (
             None,
-            arg("issue_key")
+            arg("issue")
                 .map(|k| crate::services::tracker::extract_issue_key(&k).unwrap_or(k)),
         ),
-        "create_tracker_issue" => (None, arg("summary")),
+        "search_issues" => (None, arg("text")),
+        "create_issue" => (None, arg("summary")),
         "remember" => (None, arg("fact")),
         _ => (None, None),
     };
@@ -218,8 +219,8 @@ Rules:
 - Use the same language as the user
 - Use list_projects to see available projects; use list_tasks to see tasks (filter by project_id/status as needed)
 - Use search_tasks to find a specific task by name
-- When user mentions a tracker link, use read_tracker_issue to get details
-- To find the ticket behind a task, call search_tracker_issues with words from its title, then attach the chosen one with update_task(tracker_url). Never guess issue keys or read them one by one
+- When the user mentions an issue — a tracker key, a GitLab link, any of it — use read_issue to get the details
+- To find the issue behind a task, call search_issues with words from its title, then attach the chosen one with update_task(tracker_url). Never guess issue keys or read them one by one
 - When creating tasks, fill in as many fields as you can infer
 - Stale tasks nobody plans to do belong in the archive (set_task_archived), not the trash — archived tasks are hidden from list_tasks/search_tasks but can be restored
 - Use remember to save personal info the user shares"#,
@@ -515,8 +516,11 @@ pub async fn chat(
                 has_dangerous = true;
                 let desc = match name.as_str() {
                     "delete_task" => format!("Delete task {}", args["task_id"].as_str().unwrap_or("?")),
-                    "create_tracker_issue" => format!("Create tracker issue: {} in {}",
-                        args["summary"].as_str().unwrap_or("?"), args["queue"].as_str().unwrap_or("?")),
+                    "create_issue" => format!(
+                        "Create issue: {} in {}",
+                        args["summary"].as_str().unwrap_or("?"),
+                        args["queue"].as_str().or(args["project"].as_str()).unwrap_or("?"),
+                    ),
                     _ => format!("{}: {}", name, args),
                 };
                 pending.push(PendingToolCall {

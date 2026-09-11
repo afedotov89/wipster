@@ -689,7 +689,7 @@ export default function TaskDetailPanel() {
             fullWidth
             size="small"
             label={t.trackerUrl}
-            placeholder="https://tracker.yandex.ru/QUEUE-123"
+            placeholder={t.issueUrlPlaceholder}
             value={trackerUrl}
             onChange={(e) => setTrackerUrl(e.target.value)}
             onBlur={() => save("tracker_url", trackerUrl || null)}

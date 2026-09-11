@@ -75,7 +75,10 @@ pub fn run() {
             commands::tracker_commands::tracker_start_auth,
             commands::tracker_commands::tracker_poll_token,
             commands::tracker_commands::tracker_status,
-            commands::tracker_commands::is_bare_tracker_reference,
+            commands::tracker_commands::gitlab_configure,
+            commands::tracker_commands::gitlab_status,
+            commands::tracker_commands::gitlab_test,
+            commands::tracker_commands::is_bare_issue_reference,
         ])
         .run(tauri::generate_context!())
         .expect("error while running Wipster");

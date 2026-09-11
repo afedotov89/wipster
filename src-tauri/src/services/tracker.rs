@@ -1,63 +1,9 @@
 use reqwest::Client;
 use serde_json::Value;
 
+use super::issues::{Issue, IssueBrief, Provider};
+
 const API_BASE: &str = "https://api.tracker.yandex.net/v2";
-
-pub struct TrackerIssue {
-    pub key: String,
-    pub summary: String,
-    pub status: String,
-    pub assignee: String,
-    pub priority: String,
-    pub description: String,
-    /// What the ticket says the work should take.
-    pub estimate: String,
-    /// What has been logged against it so far.
-    pub spent: String,
-    /// The date it is due, if the ticket carries one.
-    pub deadline: String,
-    /// Task, Story, Bug — the ticket's own type.
-    pub issue_type: String,
-}
-
-impl TrackerIssue {
-    pub fn to_context_string(&self) -> String {
-        format!(
-            "## Linked Tracker Issue: {key}\n\
-             - **Summary**: {summary}\n\
-             - **Status**: {status}\n\
-             - **Type**: {issue_type}\n\
-             - **Assignee**: {assignee}\n\
-             - **Priority**: {priority}\n\
-             - **Estimate**: {estimate}\n\
-             - **Time spent**: {spent}\n\
-             - **Deadline**: {deadline}\n\
-             {desc}",
-            key = self.key,
-            summary = self.summary,
-            status = self.status,
-            issue_type = or_dash(&self.issue_type),
-            assignee = self.assignee,
-            priority = self.priority,
-            estimate = or_dash(&self.estimate),
-            spent = or_dash(&self.spent),
-            deadline = or_dash(&self.deadline),
-            desc = if self.description.is_empty() {
-                String::new()
-            } else {
-                format!("\n### Description\n{}\n", self.description)
-            },
-        )
-    }
-}
-
-fn or_dash(value: &str) -> &str {
-    if value.is_empty() {
-        "—"
-    } else {
-        value
-    }
-}
 
 /// Turn a tracker duration into the words the app uses.
 ///
@@ -199,7 +145,7 @@ pub fn find_tracker_refs(text: &str) -> Vec<String> {
     keys
 }
 
-pub async fn fetch_issue(token: &str, org_id: &str, issue_key: &str) -> Result<TrackerIssue, String> {
+pub async fn fetch_issue(token: &str, org_id: &str, issue_key: &str) -> Result<Issue, String> {
     let client = Client::new();
     let url = format!("{}/issues/{}", API_BASE, issue_key);
 
@@ -229,10 +175,13 @@ pub async fn fetch_issue(token: &str, org_id: &str, issue_key: &str) -> Result<T
         estimate
     };
 
-    Ok(TrackerIssue {
-        key: json["key"].as_str().unwrap_or("").to_string(),
-        summary: json["summary"].as_str().unwrap_or("").to_string(),
-        status: get_nested(&json, &["status", "display"]).unwrap_or("").to_string(),
+    let key = json["key"].as_str().unwrap_or("").to_string();
+    Ok(Issue {
+        provider: Provider::YandexTracker,
+        url: format!("https://tracker.yandex.ru/{}", key),
+        key,
+        title: json["summary"].as_str().unwrap_or("").to_string(),
+        state: get_nested(&json, &["status", "display"]).unwrap_or("").to_string(),
         assignee: get_nested(&json, &["assignee", "display"]).unwrap_or("unassigned").to_string(),
         priority: get_nested(&json, &["priority", "display"]).unwrap_or("").to_string(),
         description: json["description"].as_str().unwrap_or("").to_string(),
@@ -249,15 +198,6 @@ pub async fn fetch_issue(token: &str, org_id: &str, issue_key: &str) -> Result<T
     })
 }
 
-/// One line of a search result — enough to choose between issues without
-/// fetching each one.
-pub struct TrackerIssueBrief {
-    pub key: String,
-    pub summary: String,
-    pub status: String,
-    pub updated_at: String,
-}
-
 /// Find issues whose summary contains `text`, newest first.
 ///
 /// Without this the only way to "find the ticket for this task" was to read
@@ -271,7 +211,7 @@ pub async fn search_issues(
     text: &str,
     queue: Option<&str>,
     limit: usize,
-) -> Result<Vec<TrackerIssueBrief>, String> {
+) -> Result<Vec<IssueBrief>, String> {
     let text = text.trim();
     if text.is_empty() {
         return Err("Search text is empty".to_string());
@@ -313,11 +253,16 @@ pub async fn search_issues(
 
     Ok(issues
         .iter()
-        .map(|issue| TrackerIssueBrief {
-            key: issue["key"].as_str().unwrap_or("").to_string(),
-            summary: issue["summary"].as_str().unwrap_or("").to_string(),
-            status: get_nested(issue, &["status", "display"]).unwrap_or("").to_string(),
-            updated_at: issue["updatedAt"].as_str().unwrap_or("").chars().take(10).collect(),
+        .map(|issue| {
+            let key = issue["key"].as_str().unwrap_or("").to_string();
+            IssueBrief {
+                provider: Provider::YandexTracker,
+                url: format!("https://tracker.yandex.ru/{}", key),
+                key,
+                title: issue["summary"].as_str().unwrap_or("").to_string(),
+                state: get_nested(issue, &["status", "display"]).unwrap_or("").to_string(),
+                updated_at: issue["updatedAt"].as_str().unwrap_or("").chars().take(10).collect(),
+            }
         })
         .collect())
 }
@@ -353,7 +298,7 @@ pub async fn create_issue(
     summary: &str,
     description: Option<&str>,
     priority: Option<&str>,
-) -> Result<TrackerIssue, String> {
+) -> Result<Issue, String> {
     let client = Client::new();
     let url = format!("{}/issues", API_BASE);
 
@@ -396,10 +341,13 @@ pub async fn create_issue(
 
     let json: Value = resp.json().await.map_err(|e| format!("Tracker parse error: {}", e))?;
 
-    Ok(TrackerIssue {
-        key: json["key"].as_str().unwrap_or("").to_string(),
-        summary: json["summary"].as_str().unwrap_or("").to_string(),
-        status: get_nested(&json, &["status", "display"]).unwrap_or("").to_string(),
+    let key = json["key"].as_str().unwrap_or("").to_string();
+    Ok(Issue {
+        provider: Provider::YandexTracker,
+        url: format!("https://tracker.yandex.ru/{}", key),
+        key,
+        title: json["summary"].as_str().unwrap_or("").to_string(),
+        state: get_nested(&json, &["status", "display"]).unwrap_or("").to_string(),
         assignee: get_nested(&json, &["assignee", "display"]).unwrap_or("unassigned").to_string(),
         priority: get_nested(&json, &["priority", "display"]).unwrap_or("").to_string(),
         description: json["description"].as_str().unwrap_or("").to_string(),

@@ -5,6 +5,7 @@ import { useThemeStore } from "@/theme/store";
 import { useUiStore } from "@/stores/uiStore";
 import { useProjectStore } from "@/stores/projectStore";
 import { useI18n, type Locale } from "@/i18n";
+import { SETTINGS_SECTIONS, isSettingsSectionId } from "@/pages/settings/sections";
 import { setSetting } from "@/utils/tauri";
 import { appLog } from "@/stores/logStore";
 
@@ -43,7 +44,13 @@ export function applyAiUiCommand(action: string, params: Record<string, unknown>
         const projectId = typeof params.project_id === "string" ? params.project_id : null;
         if (projectId) useProjectStore.getState().select(projectId);
         useUiStore.getState().setView("project");
-      } else if (view === "all-doing" || view === "archive" || view === "settings") {
+      } else if (view === "settings") {
+        // Settings are a set of rooms: naming one takes the user straight to it
+        // instead of leaving them to find it.
+        useUiStore
+          .getState()
+          .openSettings(isSettingsSectionId(params.section) ? params.section : undefined);
+      } else if (view === "all-doing" || view === "archive") {
         useUiStore.getState().setView(view);
       }
       return;
@@ -67,6 +74,7 @@ async function publishCatalog(): Promise<void> {
     themes: THEMES.map((t) => ({ id: t.id, mode: t.mode, name: t.name.en, mood: t.mood })),
     modes: ["dark", "light", "auto"],
     views: ["project", "all-doing", "archive", "settings"],
+    settings_sections: SETTINGS_SECTIONS.map((s) => s.id),
     locales: ["ru", "en"],
   };
   await setSetting("ui_catalog", JSON.stringify(catalog));

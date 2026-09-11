@@ -72,8 +72,11 @@ pub const COMMANDS: &[(&str, Coverage)] = &[
     // --- Tracker
     ("tracker_start_auth", Withheld("an OAuth flow the user has to walk through in a browser")),
     ("tracker_poll_token", Withheld("part of that same OAuth flow")),
-    ("tracker_status", Withheld("the tracker tools say themselves when it is not configured")),
-    ("is_bare_tracker_reference", Withheld("a text check the panel uses to decide whether to auto-fill")),
+    ("tracker_status", Withheld("the issue tools say themselves when it is not configured")),
+    ("gitlab_configure", Withheld("stores a credential the user types in Settings")),
+    ("gitlab_status", Withheld("the issue tools say themselves when it is not configured")),
+    ("gitlab_test", Withheld("a settings check the user runs on their own token")),
+    ("is_bare_issue_reference", Withheld("a text check the panel uses to decide whether to auto-fill")),
 ];
 
 #[cfg(test)]

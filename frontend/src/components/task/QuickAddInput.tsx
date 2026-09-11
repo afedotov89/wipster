@@ -7,7 +7,7 @@ import { useHistoryStore } from "@/stores/historyStore";
 import { useUiStore } from "@/stores/uiStore";
 import { useI18n } from "@/i18n";
 import { useAiFillStore } from "@/stores/aiFillStore";
-import { isBareTrackerReference } from "@/utils/tauri";
+import { isBareIssueReference } from "@/utils/tauri";
 
 export default function QuickAddInput() {
   const [value, setValue] = useState("");
@@ -48,10 +48,10 @@ export default function QuickAddInput() {
     openDetail(task.id);
     await refresh();
 
-    // A task whose title is only a tracker link carries nothing the user typed:
-    // everything it should say lives in the ticket, so fetch it without asking.
+    // A task whose title is only a link carries nothing the user typed:
+    // everything it should say lives in the issue, so fetch it without asking.
     try {
-      if (await isBareTrackerReference(title)) void startAiFill(task.id);
+      if (await isBareIssueReference(title)) void startAiFill(task.id);
     } catch {
       // Nothing to auto-fill from — the ✨ button is still there.
     }

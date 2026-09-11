@@ -41,9 +41,6 @@ export const DEFAULT_WIP_LIMIT = 3;
 export const MIN_WIP_LIMIT = 1;
 export const MAX_WIP_LIMIT = 20;
 
-/** Height of the macOS titlebar the webview draws under in "Overlay" mode. */
-export const TITLEBAR_HEIGHT = 28;
-
 /**
  * Horizontal space the traffic lights occupy. Anything drawn in the titlebar
  * band — which in "Overlay" mode means anything at the top of the window — has

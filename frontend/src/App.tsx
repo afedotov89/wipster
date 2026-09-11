@@ -9,7 +9,7 @@ import AppShell from "./components/layout/AppShell";
 import { useUndoRedo } from "./hooks/useUndoRedo";
 import { useAutoUpdater } from "./hooks/useAutoUpdater";
 import { useI18n } from "./i18n";
-import { TITLEBAR_HEIGHT, TRAFFIC_LIGHTS_WIDTH } from "./utils/constants";
+import { HEADER_BAND_HEIGHT, TRAFFIC_LIGHTS_WIDTH } from "./utils/constants";
 
 function UpdateBanner({ available, version, downloading, progress, ready, downloadAndInstall, installAndRelaunch }: ReturnType<typeof useAutoUpdater>) {
   const { locale } = useI18n();
@@ -19,10 +19,14 @@ function UpdateBanner({ available, version, downloading, progress, ready, downlo
   return (
     <Box
       sx={{
+        // While it shows, the banner *is* the titlebar band: the window buttons
+        // float over its left end, so it has to clear them horizontally and be
+        // tall enough to hold them — a shorter strip left them straddling its
+        // bottom edge, half on the banner and half on the app.
         pl: `${TRAFFIC_LIGHTS_WIDTH}px`,
         pr: 2,
         py: 0.75,
-        minHeight: TITLEBAR_HEIGHT,
+        minHeight: HEADER_BAND_HEIGHT,
         flexShrink: 0,
         bgcolor: "primary.main",
         color: "white",
@@ -66,13 +70,13 @@ function UpdateBanner({ available, version, downloading, progress, ready, downlo
 function AppContent() {
   useUndoRedo();
   const updater = useAutoUpdater();
-  // When the banner is showing it occupies the titlebar band itself, so the
-  // shell must not reserve that space a second time.
+  // The window buttons float over whatever is at the top of the window: the
+  // sidebar's own title band normally, the update banner when there is one.
   return (
     <Box sx={{ display: "flex", flexDirection: "column", height: "100vh", overflow: "hidden" }}>
       <UpdateBanner {...updater} />
       <Box sx={{ flex: 1, minHeight: 0 }}>
-        <AppShell titlebarInset={updater.available ? 0 : TITLEBAR_HEIGHT} />
+        <AppShell windowButtonsOverlap={!updater.available} />
       </Box>
     </Box>
   );

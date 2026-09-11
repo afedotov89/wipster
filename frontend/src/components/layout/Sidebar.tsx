@@ -51,10 +51,10 @@ const CHEVRON_SLOT = 16;
 const NESTING_INDENT = 2.5;
 import { HEADER_BAND_HEIGHT, TRAFFIC_LIGHTS_WIDTH } from "@/utils/constants";
 
-export default function Sidebar({ titlebarInset }: { titlebarInset: number }) {
+export default function Sidebar({ windowButtonsOverlap }: { windowButtonsOverlap: boolean }) {
   const { projects, selectedProjectId, load, select, add, update, remove } =
     useProjectStore();
-  const { view, setView } = useUiStore();
+  const { view, setView, openSettings } = useUiStore();
   const { archivedTasks, loadArchived, load: loadTasks } = useTaskStore();
   const { t } = useI18n();
   const [adding, setAdding] = useState(false);
@@ -349,7 +349,7 @@ export default function Sidebar({ titlebarInset }: { titlebarInset: number }) {
       <Box
         data-tauri-drag-region
         sx={{
-          pl: titlebarInset > 0 ? `${TRAFFIC_LIGHTS_WIDTH}px` : 2,
+          pl: windowButtonsOverlap ? `${TRAFFIC_LIGHTS_WIDTH}px` : 2,
           pr: 2,
           height: HEADER_BAND_HEIGHT,
           flexShrink: 0,
@@ -362,7 +362,7 @@ export default function Sidebar({ titlebarInset }: { titlebarInset: number }) {
         </Typography>
       </Box>
 
-      <List dense disablePadding>
+      <List dense disablePadding sx={{ pt: 0.5 }}>
         <ListItemButton
           selected={view === "all-doing"}
           onClick={() => {
@@ -400,7 +400,7 @@ export default function Sidebar({ titlebarInset }: { titlebarInset: number }) {
         </IconButton>
       </Box>
 
-      <List dense disablePadding sx={{ flex: 1, overflow: "auto" }}>
+      <List dense disablePadding sx={{ flex: 1, overflow: "auto", pb: 0.5 }}>
         {roots.map((root) => {
           const children = descendantsOf(root.id);
           const isCollapsed = collapsed.includes(root.id);
@@ -527,7 +527,10 @@ export default function Sidebar({ titlebarInset }: { titlebarInset: number }) {
         </DialogActions>
       </Dialog>
 
-      <List dense disablePadding sx={{ borderTop: 1, borderColor: "divider" }}>
+      {/* A selected row is a pill, and a pill needs air: without this padding it
+          touches the rule above and the window's own bottom edge, which reads
+          as a clipped shape rather than a highlight. */}
+      <List dense disablePadding sx={{ borderTop: 1, borderColor: "divider", py: 0.5 }}>
         <ListItemButton
           selected={view === "archive"}
           onClick={() => {
@@ -550,8 +553,7 @@ export default function Sidebar({ titlebarInset }: { titlebarInset: number }) {
           )}
         </ListItemButton>
         <ListItemButton
-          selected={view === "settings"}
-          onClick={() => setView("settings")}
+          onClick={() => openSettings()}
           sx={{ mx: 1, borderRadius: 1 }}
         >
           <ListItemIcon sx={{ minWidth: 32 }}>

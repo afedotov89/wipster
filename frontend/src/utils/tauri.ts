@@ -313,9 +313,18 @@ export const trackerStartAuth = () => invoke<DeviceAuthStart>("tracker_start_aut
 export const trackerPollToken = () => invoke<string>("tracker_poll_token");
 export const trackerStatus = () => invoke<boolean>("tracker_status");
 
-/** Is this text nothing but a tracker link or issue key? */
-export const isBareTrackerReference = (text: string) =>
-  invoke<boolean>("is_bare_tracker_reference", { text });
+/** Is this text nothing but a link to an issue, in any connected tracker? */
+export const isBareIssueReference = (text: string) =>
+  invoke<boolean>("is_bare_issue_reference", { text });
+
+/** The configured GitLab address, or null when it is not set up. */
+export const gitlabStatus = () => invoke<string | null>("gitlab_status");
+
+export const gitlabConfigure = (url: string, token: string) =>
+  invoke<void>("gitlab_configure", { url, token });
+
+/** Check the GitLab token against the server; resolves to the user's name. */
+export const gitlabTest = () => invoke<string>("gitlab_test");
 
 export const reorderTasks = (taskIds: string[]) =>
   invoke<void>("reorder_tasks", { taskIds });

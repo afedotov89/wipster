@@ -21,7 +21,7 @@ pub mod coverage;
 pub mod memory;
 pub mod projects;
 pub mod tasks;
-pub mod tracker;
+pub mod issues;
 pub mod ui;
 pub mod workflow;
 
@@ -44,13 +44,15 @@ pub enum Danger {
 }
 
 type DbFn = fn(&Connection, &Value) -> Result<String, String>;
-type NetFn = fn(String, String, Value) -> Pin<Box<dyn Future<Output = String> + Send>>;
+/// Reaches the network. It is handed the database because that is where the
+/// credentials live, and which tracker a request belongs to is decided per link.
+type NetFn = for<'a> fn(&'a Mutex<Connection>, Value) -> Pin<Box<dyn Future<Output = String> + Send + 'a>>;
 
 pub enum Handler {
     /// Runs against the local database.
     Db(DbFn),
-    /// Needs the tracker: receives the token and organisation id.
-    Tracker(NetFn),
+    /// Goes out to a tracker over the network.
+    Net(NetFn),
     /// Cannot be done in the database at all — the window is asked to do it.
     /// The string is the action the interface knows by name.
     Ui(&'static str),
@@ -86,7 +88,7 @@ pub fn registry() -> Vec<Tool> {
     all.extend(tasks::tools());
     all.extend(projects::tools());
     all.extend(memory::tools());
-    all.extend(tracker::tools());
+    all.extend(issues::tools());
     all.extend(workflow::tools());
     all.extend(ui::tools());
     all
@@ -115,12 +117,7 @@ pub fn is_dangerous(name: &str) -> bool {
 /// keywords, in either language, and returns the best few rather than
 /// everything that touched a letter.
 pub fn find(query: &str, limit: usize) -> Vec<Tool> {
-    let words: Vec<String> = query
-        .to_lowercase()
-        .split(|c: char| !c.is_alphanumeric())
-        .filter(|w| w.chars().count() >= 3)
-        .map(str::to_string)
-        .collect();
+    let words = split_words(query);
 
     let mut scored: Vec<(usize, Tool)> = registry()
         .into_iter()
@@ -139,21 +136,65 @@ fn score(tool: &Tool, words: &[String]) -> usize {
         return 0;
     }
     let name = tool.name.to_lowercase();
-    let summary = tool.summary.to_lowercase();
+    let summary_words: Vec<String> = split_words(&tool.summary);
+    let keyword_words: Vec<String> = tool.keywords.iter().flat_map(|k| split_words(k)).collect();
+
     words
         .iter()
         .map(|word| {
             if name.contains(word.as_str()) {
                 4
-            } else if tool.keywords.iter().any(|k| k.to_lowercase().contains(word.as_str())) {
+            } else if keyword_words.iter().any(|k| alike(k, word)) {
                 3
-            } else if summary.contains(word.as_str()) {
+            } else if summary_words.iter().any(|s| alike(s, word)) {
                 1
             } else {
                 0
             }
         })
         .sum()
+}
+
+fn split_words(text: &str) -> Vec<String> {
+    text.to_lowercase()
+        .split(|c: char| !c.is_alphanumeric())
+        .filter(|w| w.chars().count() >= 3)
+        .map(stem)
+        .collect()
+}
+
+/// Two words mean the same thing closely enough to match.
+fn alike(a: &str, b: &str) -> bool {
+    a == b || a.contains(b) || b.contains(a)
+}
+
+/// Crude stemming, and deliberately so.
+///
+/// A user types "гитлабе", "темы", "проекта"; the keywords are written in the
+/// dictionary form. Without trimming the ending, none of those find anything,
+/// and a search that fails on a declined noun is no search at all. Cutting a
+/// short tail off long words is enough for one-word matching and costs nothing
+/// — the alternative is a morphology library for a dozen keywords.
+fn stem(word: &str) -> String {
+    const ENDINGS: [&str; 22] = [
+        "ами", "ого", "ему", "ыми", "ой", "ом", "ам", "ах", "ов", "ев", "ий", "ый", "ая", "ое",
+        "ую", "ые", "ие", "а", "я", "ы", "и", "е",
+    ];
+    let length = word.chars().count();
+    if length <= 4 {
+        return word.to_string();
+    }
+    for ending in ENDINGS {
+        let tail = ending.chars().count();
+        if word.ends_with(ending) && length - tail >= 4 {
+            return word.chars().take(length - tail).collect();
+        }
+    }
+    // English plurals, for the half of the vocabulary that is English.
+    if length > 4 && word.ends_with('s') {
+        return word.chars().take(length - 1).collect();
+    }
+    word.to_string()
 }
 
 /// Run a tool by name.
@@ -170,28 +211,8 @@ pub async fn execute(name: &str, args: &Value, db: &Mutex<Connection>) -> String
             run(&conn, args).unwrap_or_else(|e| format!("Error: {}", e))
         }
         Handler::Ui(action) => crate::services::ui_bridge::request(action, args.clone()),
-        Handler::Tracker(run) => {
-            let (token, org_id) = tracker_credentials(db);
-            match (token, org_id) {
-                (Some(token), Some(org_id)) => run(token, org_id, args.clone()).await,
-                _ => "Tracker not configured. Go to Settings → Integrations.".to_string(),
-            }
-        }
+        Handler::Net(run) => run(db, args.clone()).await,
     }
-}
-
-/// The tracker token and organisation, or `None` when it has not been set up.
-fn tracker_credentials(db: &Mutex<Connection>) -> (Option<String>, Option<String>) {
-    let Ok(conn) = db.lock() else {
-        return (None, None);
-    };
-    let read = |key: &str| {
-        conn.query_row("SELECT value FROM settings WHERE key = ?1", [key], |r| {
-            r.get::<_, String>(0)
-        })
-        .ok()
-    };
-    (read("tracker_token"), read("tracker_org_id"))
 }
 
 // ---- Shared by the handlers ----
@@ -235,7 +256,9 @@ mod tests {
             ("покажи архив", "list_archived_tasks"),
             ("отмени последнее действие", "undo_last"),
             ("поменяй лимит задач в работе", "set_wip_limit"),
-            ("найди тикет в трекере", "search_tracker_issues"),
+            ("найди тикет в трекере", "search_issues"),
+            ("найди задачу в гитлабе", "search_issues"),
+            ("открой тикет group/project#42", "read_issue"),
             ("открой настройки", "open_view"),
             ("смени язык на английский", "set_language"),
             ("что я делал вчера", "recent_changes"),

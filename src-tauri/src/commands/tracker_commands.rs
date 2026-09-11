@@ -94,13 +94,63 @@ pub fn tracker_status(db: State<'_, DbState>) -> Result<bool, String> {
     Ok(has_token && has_org)
 }
 
-/// Is this text nothing but a tracker reference — a link or an issue key?
+/// Is this text nothing but a reference to an issue, in any connected system?
 ///
 /// The UI asks before auto-filling a freshly created task: a title that is only
-/// a link carries no information the user typed, so the ticket behind it is the
+/// a link carries no information the user typed, so the issue behind it is the
 /// only place the task's real fields can come from. One implementation of the
-/// rule, shared with the fill itself.
+/// rule, shared with the fill itself, and it knows about every provider.
 #[tauri::command]
-pub fn is_bare_tracker_reference(text: String) -> bool {
-    crate::services::tracker::is_bare_issue_reference(&text)
+pub fn is_bare_issue_reference(db: State<'_, DbState>, text: String) -> bool {
+    let credentials = crate::services::issues::Credentials::read(&db.0);
+    crate::services::issues::is_bare_reference(&text, &credentials)
+}
+
+/// Point the app at a corporate GitLab.
+///
+/// A separate command rather than raw settings access: the token is a
+/// credential, and `set_setting` is deliberately out of the assistant's reach.
+#[tauri::command]
+pub fn gitlab_configure(db: State<'_, DbState>, url: String, token: String) -> Result<(), String> {
+    let url = url.trim().trim_end_matches('/').to_string();
+    if !url.starts_with("http") {
+        return Err("The GitLab address must start with http:// or https://".to_string());
+    }
+    let conn = db.0.lock().map_err(|e| e.to_string())?;
+    set_setting(&conn, "gitlab_url", &url)?;
+
+    // A blank token means "keep the one you already have": the settings screen
+    // cannot show the stored token, so making the user re-paste it just to
+    // correct the address would be a tax on a typo.
+    let token = token.trim();
+    if !token.is_empty() {
+        set_setting(&conn, "gitlab_token", token)?;
+    } else if get_setting(&conn, "gitlab_token").is_none() {
+        return Err("A GitLab access token is required".to_string());
+    }
+    Ok(())
+}
+
+/// The configured GitLab address, if there is one. The token is never returned.
+#[tauri::command]
+pub fn gitlab_status(db: State<'_, DbState>) -> Result<Option<String>, String> {
+    let conn = db.0.lock().map_err(|e| e.to_string())?;
+    let url = get_setting(&conn, "gitlab_url");
+    let has_token = get_setting(&conn, "gitlab_token").is_some();
+    Ok(url.filter(|_| has_token))
+}
+
+/// Check the token against the server, so a typo is caught here and not in the
+/// middle of a request the user cared about.
+#[tauri::command]
+pub async fn gitlab_test(db: State<'_, DbState>) -> Result<String, String> {
+    let (url, token) = {
+        let conn = db.0.lock().map_err(|e| e.to_string())?;
+        (
+            get_setting(&conn, "gitlab_url").ok_or("GitLab is not configured")?,
+            get_setting(&conn, "gitlab_token").ok_or("GitLab is not configured")?,
+        )
+    };
+
+    crate::services::gitlab::whoami(&url, &token).await
 }

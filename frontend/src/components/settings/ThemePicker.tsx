@@ -101,7 +101,7 @@ function ThemeGallery({
     <Box
       sx={{
         display: "grid",
-        gridTemplateColumns: "repeat(auto-fill, minmax(190px, 1fr))",
+        gridTemplateColumns: "repeat(auto-fill, minmax(172px, 1fr))",
         gap: 1.5,
       }}
     >
@@ -196,11 +196,13 @@ export default function ThemePicker() {
         )}
       </Box>
 
-      {/* Galleries side-by-side on wide screens, stacked on narrow */}
+      {/* Galleries side-by-side when there is room and stacked when there is
+          not — measured against the space this picker actually got, not the
+          window, because the settings now give it a column of their own. */}
       <Box
         sx={{
           display: "grid",
-          gridTemplateColumns: { xs: "1fr", md: "1fr 1fr" },
+          gridTemplateColumns: "repeat(auto-fit, minmax(360px, 1fr))",
           gap: 3,
         }}
       >

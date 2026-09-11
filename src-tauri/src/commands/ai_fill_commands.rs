@@ -46,27 +46,27 @@ pub async fn ai_fill_task(
         ).map_err(|e| format!("Task not found: {}", e))?;
 
         let task_ctx = llm_context::task_context(&conn, &task);
+        let credentials = crate::services::issues::Credentials::read(&db.0);
 
-        // tracker_url is filled deterministically (not by the LLM): if the field
-        // is empty but the task's text references a tracker issue, use that.
+        // The issue link is filled deterministically (not by the LLM): if the
+        // field is empty but the task's text points at an issue — in any
+        // connected system — that is the link.
+        let refs_text = format!(
+            "{} {} {}",
+            task.title,
+            task.dod.as_deref().unwrap_or(""),
+            task.next_step.as_deref().unwrap_or(""),
+        );
         let tracker_url_fill = if task.tracker_url.as_deref().unwrap_or("").is_empty() {
-            let refs_text = format!(
-                "{} {} {}",
-                task.title,
-                task.dod.as_deref().unwrap_or(""),
-                task.next_step.as_deref().unwrap_or(""),
-            );
-            crate::services::tracker::find_tracker_refs(&refs_text)
-                .first()
-                .map(|k| format!("https://tracker.yandex.ru/{}", k))
+            crate::services::issues::first_reference_url(&refs_text, &credentials)
         } else {
             None
         };
 
-        // A title that is only a link says nothing about the work: the ticket's
-        // own subject replaces it, and the link lives on in tracker_url.
+        // A title that is only a link says nothing about the work: the issue's
+        // own title replaces it, and the link lives on in tracker_url.
         let title_is_placeholder =
-            crate::services::tracker::is_bare_issue_reference(&task.title);
+            crate::services::issues::is_bare_reference(&task.title, &credentials);
 
         // Gather examples: completed tasks from same project with filled fields
         let examples = gather_examples(&conn, task.project_id.as_deref());
@@ -97,7 +97,7 @@ pub async fn ai_fill_task(
 Empty fields to fill: {fields}
 
 You have read-only tools to gather more context. Use them BEFORE answering when helpful:
-- read_tracker_issue: if the task title or any field references a Yandex Tracker issue (a tracker.yandex.ru link or a KEY-123 code), read it to base the fields on the real ticket — never guess from a bare URL.
+- read_issue: if the task title or any field references an issue — a Yandex Tracker key or link (KEY-123), a GitLab link or group/project#42 — read it and base the fields on the real issue, never on a bare URL.
 - search_tasks / list_tasks: to find how similar tasks were estimated and broken down.
 
 After gathering context, respond with ONLY valid JSON as your final message, no markdown:
@@ -113,7 +113,7 @@ After gathering context, respond with ONLY valid JSON as your final message, no 
 Rules:
 - BE BRIEF. Every value must be as short as possible
 - Only fill fields listed in empty_fields, set others to null
-- title: only when listed. The current title is nothing but a tracker link, so read the issue and take its summary: keep its wording and language, drop the issue code and any queue prefix, max 12 words. If the issue cannot be read, return null — never build a title out of the URL itself
+- title: only when listed. The current title is nothing but a tracker link, so read the issue and take its title: keep its wording and language, drop the issue code and any queue prefix, max 12 words. If the issue cannot be read, return null — never build a title out of the URL itself
 - promised_to: ALWAYS null
 - dod: one sentence, max 15 words
 - checklist: max 4 steps, each max 8 words
@@ -129,7 +129,7 @@ Rules:
 
     // Run a tool-use loop with a read-only toolset so the model can pull in
     // tracker issues / similar tasks before producing the JSON answer.
-    const FILL_TOOLS: &[&str] = &["read_tracker_issue", "search_tasks", "list_tasks", "get_task"];
+    const FILL_TOOLS: &[&str] = &["read_issue", "search_tasks", "list_tasks", "get_task"];
     let user_msg = "Fill the empty fields. Use tools to gather context, then reply with only the JSON.";
     let text = crate::services::agent::run_tool_loop(
         &provider, &api_key, &model, &system_prompt, user_msg, FILL_TOOLS, &db.0,

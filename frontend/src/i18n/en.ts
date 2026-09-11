@@ -12,8 +12,9 @@ const AGENT_STEPS: Record<string, { active: string; done: string }> = {
   list_tasks: { active: "Reading the task list", done: "Read the task list" },
   list_projects: { active: "Reading projects", done: "Read projects" },
   get_task: { active: "Reading task", done: "Read task" },
-  read_tracker_issue: { active: "Reading the tracker", done: "Read the tracker" },
-  create_tracker_issue: { active: "Creating a tracker issue", done: "Created a tracker issue" },
+  read_issue: { active: "Reading the issue", done: "Read the issue" },
+  search_issues: { active: "Searching the tracker", done: "Searched the tracker" },
+  create_issue: { active: "Creating an issue", done: "Created an issue" },
   remember: { active: "Saving to memory", done: "Saved to memory" },
 };
 
@@ -38,6 +39,14 @@ const en = {
     `${n} task${n === 1 ? "" : "s"} will move to the Archive, where they can be restored.`,
   settings: "Settings",
   language: "Language",
+  settingsGeneral: "General",
+  settingsCaption: "SETTINGS",
+  backToProjects: "Projects",
+  settingsAppearance: "Appearance",
+  settingsLogs: "Logs",
+  logsClear: "Clear",
+  logsEmpty: "Nothing yet",
+  logsCount: (n: number) => `${n} ${n === 1 ? "entry" : "entries"}`,
 
   // Project
   projectName: "Project name",
@@ -72,7 +81,8 @@ const en = {
   timeEstimatePlaceholder: "e.g. 2h, 3d",
   promisedTo: "Promised to",
   comment: "Comment",
-  trackerUrl: "Tracker link",
+  trackerUrl: "Issue link",
+  issueUrlPlaceholder: "Tracker or GitLab",
 
   // Quick Add
   addTaskPlaceholder: "Add task... (⌘N)",
@@ -140,6 +150,15 @@ const en = {
   yandexTracker: "Yandex Tracker",
   trackerToken: "OAuth Token",
   trackerOrgId: "Organization ID",
+  gitlabUrl: "GitLab address",
+  gitlabToken: "Access token",
+  gitlabConnect: "Connect",
+  gitlabRecheck: "Check again",
+  gitlabChecking: "Checking...",
+  gitlabTokenKept: "Keep the current one",
+  gitlabConnected: (who: string) => `Connected as ${who}`,
+  gitlabHelp:
+    "A personal access token with read_api is enough to read and search; api is only needed to create issues. GitLab links work exactly like tracker links.",
   trackerHelp: "Tracker issue links in any task field will auto-enrich AI context",
 
   // Agent prompt hints — label on the chip, command sent to the agent
@@ -212,6 +231,7 @@ const en = {
   },
   apply: "Apply",
   cancel: "Cancel",
+  close: "Close",
   applied: "Applied",
   typeCommand: "Type a command...",
   unknownCommand:

@@ -10,6 +10,7 @@ import type { Task, TaskStatus } from "@/utils/tauri";
 import { PRIORITY_COLORS } from "@/utils/constants";
 import type { Priority } from "@/utils/tauri";
 import { useUiStore } from "@/stores/uiStore";
+import { issueLabel } from "@/utils/issueLabel";
 import { useTaskStore } from "@/stores/taskStore";
 import { useProjectStore } from "@/stores/projectStore";
 import { useAiFillStore } from "@/stores/aiFillStore";
@@ -184,11 +185,9 @@ export default function TaskCard({ task, onMove }: Props) {
             })()}
             {task.tracker_url && (() => {
               const url = task.tracker_url;
-              // Extract last path component: "QUEUE-123" from "https://tracker.yandex.ru/QUEUE-123"
-              const key = url.replace(/\/+$/, "").split("/").pop() || url;
               return (
                 <Chip
-                  label={key}
+                  label={issueLabel(url)}
                   size="small"
                   variant="outlined"
                   sx={{ height: 20, fontSize: 10, cursor: "pointer", color: "rgb(78,129,238)", borderColor: "rgb(78,129,238)" }}

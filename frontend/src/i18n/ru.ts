@@ -12,8 +12,9 @@ const AGENT_STEPS: Record<string, { active: string; done: string }> = {
   list_tasks: { active: "Смотрю список задач", done: "Список задач прочитан" },
   list_projects: { active: "Смотрю проекты", done: "Проекты прочитаны" },
   get_task: { active: "Читаю задачу", done: "Задача прочитана" },
-  read_tracker_issue: { active: "Читаю трекер", done: "Трекер прочитан" },
-  create_tracker_issue: { active: "Создаю тикет", done: "Тикет создан" },
+  read_issue: { active: "Читаю тикет", done: "Тикет прочитан" },
+  search_issues: { active: "Ищу в трекере", done: "Поиск в трекере" },
+  create_issue: { active: "Создаю тикет", done: "Тикет создан" },
   remember: { active: "Запоминаю", done: "Запомнено" },
 };
 
@@ -48,6 +49,14 @@ const ru = {
     `${n} ${plural(n, "задача уйдёт", "задачи уйдут", "задач уйдут")} в архив — оттуда их можно вернуть.`,
   settings: "Настройки",
   language: "Язык",
+  settingsGeneral: "Основное",
+  settingsCaption: "НАСТРОЙКИ",
+  backToProjects: "Проекты",
+  settingsAppearance: "Оформление",
+  settingsLogs: "Журнал",
+  logsClear: "Очистить",
+  logsEmpty: "Пока пусто",
+  logsCount: (n: number) => `${n} ${n % 10 === 1 && n % 100 !== 11 ? "запись" : n % 10 >= 2 && n % 10 <= 4 && (n % 100 < 10 || n % 100 >= 20) ? "записи" : "записей"}`,
 
   // Project
   projectName: "Название проекта",
@@ -82,7 +91,8 @@ const ru = {
   timeEstimatePlaceholder: "напр. 2ч, 3д",
   promisedTo: "Кому обещано",
   comment: "Комментарий",
-  trackerUrl: "Ссылка на трекер",
+  trackerUrl: "Ссылка на тикет",
+  issueUrlPlaceholder: "Трекер или GitLab",
 
   // Quick Add
   addTaskPlaceholder: "Добавить задачу... (⌘N)",
@@ -150,6 +160,15 @@ const ru = {
   yandexTracker: "Яндекс Трекер",
   trackerToken: "OAuth-токен",
   trackerOrgId: "ID организации",
+  gitlabUrl: "Адрес GitLab",
+  gitlabToken: "Токен доступа",
+  gitlabConnect: "Подключить",
+  gitlabRecheck: "Проверить заново",
+  gitlabChecking: "Проверяем...",
+  gitlabTokenKept: "Оставить прежний",
+  gitlabConnected: (who: string) => `Подключено: ${who}`,
+  gitlabHelp:
+    "Personal access token со скоупом read_api — для чтения и поиска; api — если нужно ещё и заводить задачи. Ссылки на задачи GitLab работают так же, как ссылки на трекер.",
   trackerHelp: "Ссылки на тикеты в любом поле задачи автоматически обогатят контекст ИИ",
 
   // Agent prompt hints — label on the chip, command sent to the agent
@@ -224,6 +243,7 @@ const ru = {
   },
   apply: "Применить",
   cancel: "Отмена",
+  close: "Закрыть",
   applied: "Применено",
   typeCommand: "Введите команду...",
   unknownCommand:

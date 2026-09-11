@@ -208,10 +208,6 @@ describe("prompt suggestions", () => {
     expect(suggestion?.prompt).toBe(long);
   });
 
-  it("says nothing on the settings screen beyond the app tip", () => {
-    expect(ids(context({ view: "settings" }))).toEqual(["tip:theme"]);
-  });
-
   it("keeps one rotating tip about the app itself when no task is open", () => {
     const first = suggestPrompts(context({ appTipIndex: 0 }), t).find((s) =>
       s.id.startsWith("tip:"),

@@ -27,10 +27,10 @@ pub fn tools() -> Vec<Tool> {
     vec![
         Tool {
             name: "list_appearance_options",
-            summary: "List the themes, views and languages the app offers, with the ids to pass to set_appearance",
+            summary: "List the themes, views, settings sections and languages the app offers, with the ids to pass to set_appearance and open_view",
             keywords: &[
-                "тема", "оформление", "цвета", "язык", "какие темы",
-                "theme", "appearance", "colours", "language", "options",
+                "тема", "оформление", "цвета", "язык", "какие темы", "разделы настроек",
+                "theme", "appearance", "colours", "language", "options", "settings sections",
             ],
             availability: Availability::OnDemand,
             danger: Danger::Safe,
@@ -74,10 +74,12 @@ pub fn tools() -> Vec<Tool> {
         },
         Tool {
             name: "open_view",
-            summary: "Show a screen: a project's board, everything in progress, the archive or the settings",
+            summary: "Show a screen: a project's board, everything in progress, the archive or one section of the settings",
             keywords: &[
                 "открой", "покажи", "перейди", "экран", "архив", "настройки", "в работе",
+                "оформление", "интеграции", "журнал", "логи",
                 "open", "show", "go to", "screen", "archive", "settings", "board",
+                "appearance", "integrations", "logs",
             ],
             availability: Availability::OnDemand,
             danger: Danger::Safe,
@@ -87,6 +89,7 @@ pub fn tools() -> Vec<Tool> {
                     "properties": {
                         "view": { "type": "string", "enum": ["project", "all-doing", "archive", "settings"] },
                         "project_id": { "type": "string", "description": "Which project's board, when view is \"project\"" },
+                        "section": { "type": "string", "description": "Which settings section, when view is \"settings\" — one of ui_catalog.settings_sections" },
                     },
                     "required": ["view"]
                 })

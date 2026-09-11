@@ -10,7 +10,7 @@ export interface PromptSuggestion {
 
 /** Everything the suggestions are allowed to look at. */
 export interface SuggestionContext {
-  view: "project" | "all-doing" | "archive" | "settings";
+  view: "project" | "all-doing" | "archive";
   /** The task whose detail panel is open, if any — the strongest context there is. */
   task: Task | null;
   project: Project | null;
