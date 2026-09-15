@@ -54,6 +54,7 @@ pub const COMMANDS: &[(&str, Coverage)] = &[
     ("get_setting", Withheld("raw settings access would hand over the API keys; the settings worth changing have their own tools")),
     ("set_setting", Withheld("raw settings access would let the assistant rewrite the API keys; the settings worth changing have their own tools")),
     ("test_llm_connection", Withheld("a check on the assistant's own connection, which it cannot usefully run on itself")),
+    ("llm_providers", Withheld("the list of services the app can be pointed at; choosing one means pasting a key, which only the user has")),
     ("get_backend_logs", Withheld("diagnostics for the log view")),
     // --- The assistant itself
     ("agent_chat", Withheld("this is the assistant's own entry point")),

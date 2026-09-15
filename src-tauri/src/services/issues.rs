@@ -110,10 +110,14 @@ pub struct Credentials {
 }
 
 impl Credentials {
-    pub fn read(db: &Mutex<Connection>) -> Self {
-        let Ok(conn) = db.lock() else {
-            return Credentials { tracker: None, gitlab: None };
-        };
+    /// Read from a connection the caller already holds.
+    ///
+    /// Deliberately a `&Connection` and not the mutex. An earlier version took
+    /// the mutex and locked it itself, and `ai_fill_task` called it from inside
+    /// its own lock — a `std::sync::Mutex` is not reentrant, so the command
+    /// froze for good and the spinner on the card span forever. With a
+    /// connection in the signature that mistake no longer compiles.
+    pub fn read(conn: &Connection) -> Self {
         let setting = |key: &str| {
             conn.query_row("SELECT value FROM settings WHERE key = ?1", [key], |r| {
                 r.get::<_, String>(0)
@@ -125,6 +129,15 @@ impl Credentials {
         Credentials {
             tracker: setting("tracker_token").zip(setting("tracker_org_id")),
             gitlab: setting("gitlab_url").zip(setting("gitlab_token")),
+        }
+    }
+
+    /// The same, for a caller that holds no lock yet — never call it from code
+    /// that already does.
+    pub fn lock_and_read(db: &Mutex<Connection>) -> Self {
+        match db.lock() {
+            Ok(conn) => Self::read(&conn),
+            Err(_) => Credentials { tracker: None, gitlab: None },
         }
     }
 
@@ -213,7 +226,7 @@ pub fn first_reference_url(text: &str, credentials: &Credentials) -> Option<Stri
 
 /// Read an issue from whichever system it lives in.
 pub async fn read(db: &Mutex<Connection>, link: &str) -> Result<Issue, String> {
-    let credentials = Credentials::read(db);
+    let credentials = Credentials::lock_and_read(db);
     match detect(link, &credentials) {
         Some(Provider::YandexTracker) => {
             let (token, org_id) = credentials
@@ -242,7 +255,7 @@ pub async fn read(db: &Mutex<Connection>, link: &str) -> Result<Issue, String> {
 /// Merging rather than choosing: someone with both systems should not have to
 /// say which one a half-remembered title is in.
 pub async fn search(db: &Mutex<Connection>, text: &str, limit: usize) -> Result<Vec<IssueBrief>, String> {
-    let credentials = Credentials::read(db);
+    let credentials = Credentials::lock_and_read(db);
     if credentials.none_configured() {
         return Err("No tracker is configured. Settings → Integrations.".to_string());
     }
@@ -273,6 +286,31 @@ pub async fn search(db: &Mutex<Connection>, text: &str, limit: usize) -> Result<
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// The shape of the bug that froze AI-fill: the caller holds the lock and
+    /// still needs the credentials. Reading them must ask for nothing more than
+    /// the connection it already has — a second trip to the mutex never returns.
+    #[test]
+    fn credentials_are_read_from_a_connection_the_caller_already_holds() {
+        let db = Mutex::new(Connection::open_in_memory().unwrap());
+        db.lock()
+            .unwrap()
+            .execute_batch(
+                "CREATE TABLE settings (key TEXT PRIMARY KEY, value TEXT);
+                 INSERT INTO settings VALUES ('gitlab_url', 'https://gitlab.company.ru'),
+                                             ('gitlab_token', 'glpat-x');",
+            )
+            .unwrap();
+
+        let conn = db.lock().unwrap();
+        let credentials = Credentials::read(&conn);
+
+        assert_eq!(
+            credentials.gitlab,
+            Some(("https://gitlab.company.ru".into(), "glpat-x".into())),
+        );
+        assert!(credentials.tracker.is_none());
+    }
 
     fn both() -> Credentials {
         Credentials {

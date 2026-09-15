@@ -242,6 +242,21 @@ export interface LlmTestResult {
   projects_in_db: number;
 }
 
+/** A service the app can be pointed at, as the backend describes it. */
+export interface LlmProvider {
+  id: string;
+  label: string;
+  api: "anthropic" | "openai";
+  /** Empty when the address is the user's to supply. */
+  base_url: string;
+  default_model: string;
+  key_hint: string;
+  model_hint: string;
+}
+
+/** Everything the app can talk to — the list lives in Rust, next to the callers. */
+export const llmProviders = () => invoke<LlmProvider[]>("llm_providers");
+
 export const testLlmConnection = () => invoke<LlmTestResult>("test_llm_connection");
 
 // ---- Chat session commands ----

@@ -139,6 +139,10 @@ const ru = {
   // Settings - AI
   aiConnector: "ИИ-ассистент",
   provider: "Провайдер",
+  apiKey: "API-ключ",
+  baseUrl: "Адрес API",
+  baseUrlHint: "Базовый URL OpenAI-совместимого API, например https://api.example.com/v1",
+  providerCustom: "Другой (OpenAI-совместимый)",
   model: "Модель",
   save: "Сохранить",
   saved: "Сохранено",

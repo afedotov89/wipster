@@ -129,6 +129,10 @@ const en = {
   // Settings - AI
   aiConnector: "AI Assistant",
   provider: "Provider",
+  apiKey: "API key",
+  baseUrl: "API address",
+  baseUrlHint: "Base URL of an OpenAI-compatible API, e.g. https://api.example.com/v1",
+  providerCustom: "Other (OpenAI-compatible)",
   model: "Model",
   save: "Save",
   saved: "Saved",

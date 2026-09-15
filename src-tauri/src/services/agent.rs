@@ -6,6 +6,7 @@ use std::collections::HashMap;
 use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::{Arc, Mutex, OnceLock};
 
+use crate::services::llm::LlmConfig;
 use crate::services::tools;
 use tokio::sync::Notify;
 
@@ -246,20 +247,52 @@ struct AnthropicApiResponse {
     stop_reason: Option<String>,
 }
 
+/// Room for a long answer plus the tool calls that led to it.
+const ANSWER_TOKENS: u32 = 16000;
+
+/// One question, one answer, no tools.
+///
+/// Field autocomplete used to carry its own copy of both request shapes, which
+/// is how it stayed on OpenRouter while everything else learned new providers.
+/// It asks here instead, so a provider is configured once and works everywhere.
+pub async fn complete(
+    cfg: &LlmConfig,
+    system: &str,
+    user: &str,
+    max_tokens: u32,
+) -> Result<String, String> {
+    let client = Client::builder()
+        .timeout(std::time::Duration::from_secs(60))
+        .build()
+        .map_err(|e| e.to_string())?;
+    let messages = vec![json!({"role": "user", "content": user})];
+
+    let (text, _, _) = if cfg.is_anthropic() {
+        call_anthropic(&client, cfg, system, &messages, &[], max_tokens).await?
+    } else {
+        call_openai(&client, cfg, system, &messages, &[], max_tokens).await?
+    };
+
+    Ok(text.unwrap_or_default().trim().to_string())
+}
+
 async fn call_anthropic(
-    client: &Client, api_key: &str, model: &str, system: &str,
-    messages: &[Value], tools: &[Value],
+    client: &Client, cfg: &LlmConfig, system: &str,
+    messages: &[Value], tools: &[Value], max_tokens: u32,
 ) -> Result<(Option<String>, Vec<(String, String, Value)>, String), String> {
-    let body = json!({
-        "model": model,
-        "max_tokens": 16000,
+    let mut body = json!({
+        "model": cfg.model,
+        "max_tokens": cfg.answer_tokens(max_tokens),
         "system": system,
         "messages": messages,
-        "tools": tools,
     });
+    // An empty tool list is not the same as no tools: some gateways reject it.
+    if !tools.is_empty() {
+        body["tools"] = json!(tools);
+    }
 
-    let resp = client.post("https://api.anthropic.com/v1/messages")
-        .header("x-api-key", api_key)
+    let resp = client.post(cfg.chat_url())
+        .header("x-api-key", &cfg.api_key)
         .header("anthropic-version", "2023-06-01")
         .header("content-type", "application/json")
         .json(&body).send().await.map_err(|e| e.to_string())?;
@@ -296,32 +329,34 @@ async fn call_anthropic(
 }
 
 async fn call_openai(
-    client: &Client, api_key: &str, model: &str, system: &str,
-    messages: &[Value], tools: &[Value],
+    client: &Client, cfg: &LlmConfig, system: &str,
+    messages: &[Value], tools: &[Value], max_tokens: u32,
 ) -> Result<(Option<String>, Vec<(String, String, Value)>, String), String> {
     let mut msgs = vec![json!({"role": "system", "content": system})];
     msgs.extend_from_slice(messages);
 
-    let body = json!({
-        "model": model,
-        "max_tokens": 16000,
+    let mut body = json!({
+        "model": cfg.model,
+        "max_tokens": cfg.answer_tokens(max_tokens),
         "messages": msgs,
-        "tools": tools,
     });
+    if !tools.is_empty() {
+        body["tools"] = json!(tools);
+    }
 
     let t0 = std::time::Instant::now();
-    let resp = client.post("https://openrouter.ai/api/v1/chat/completions")
-        .header("Authorization", format!("Bearer {}", api_key))
+    let resp = client.post(cfg.chat_url())
+        .header("Authorization", format!("Bearer {}", cfg.api_key))
         .header("content-type", "application/json")
         .json(&body).send().await.map_err(|e| {
-            let msg = format!("[agent] OpenRouter request failed after {:.0}s: {} (model={}, msg_count={})",
-                t0.elapsed().as_secs_f32(), e, model, msgs.len());
+            let msg = format!("[agent] {} request failed after {:.0}s: {} (model={}, msg_count={})",
+                cfg.provider_id, t0.elapsed().as_secs_f32(), e, cfg.model, msgs.len());
             crate::services::logger::log("error", &msg);
             msg
         })?;
 
-    crate::services::logger::log("info", &format!("[agent] OpenRouter responded status={} in {:.1}s",
-        resp.status(), t0.elapsed().as_secs_f32()));
+    crate::services::logger::log("info", &format!("[agent] {} responded status={} in {:.1}s",
+        cfg.provider_id, resp.status(), t0.elapsed().as_secs_f32()));
 
     if !resp.status().is_success() {
         let status = resp.status();
@@ -402,9 +437,7 @@ fn tools_for_openai(defs: &[Value]) -> Vec<Value> {
 // ---- The main loop ----
 
 pub async fn chat(
-    provider: &str,
-    api_key: &str,
-    model: &str,
+    cfg: &LlmConfig,
     user_message: &str,
     history: &[(String, String)],
     memory: &str,
@@ -435,7 +468,7 @@ pub async fn chat(
         .build()
         .map_err(|e| e.to_string())?;
 
-    let is_anthropic = provider != "openrouter";
+    let is_anthropic = cfg.is_anthropic();
 
     // The model starts with the handful of tools nearly every request needs,
     // plus the one that finds the rest. Anything it discovers is added here and
@@ -468,9 +501,9 @@ pub async fn chat(
         };
 
         let (text, tool_calls, stop_reason) = if is_anthropic {
-            call_anthropic(&client, api_key, model, &system, &messages, &formatted_tools).await?
+            call_anthropic(&client, cfg, &system, &messages, &formatted_tools, ANSWER_TOKENS).await?
         } else {
-            call_openai(&client, api_key, model, &system, &messages, &formatted_tools).await?
+            call_openai(&client, cfg, &system, &messages, &formatted_tools, ANSWER_TOKENS).await?
         };
 
         // No tool calls — return final text
@@ -641,15 +674,13 @@ pub async fn chat(
 /// expose mutating tools. `allowed_tools` is intersected with the safe (non-
 /// dangerous) tool set, so it can never execute confirmation-gated actions.
 pub async fn run_tool_loop(
-    provider: &str,
-    api_key: &str,
-    model: &str,
+    cfg: &LlmConfig,
     system: &str,
     user_message: &str,
     allowed_tools: &[&str],
     db: &Mutex<Connection>,
 ) -> Result<String, String> {
-    run_tool_loop_traced(provider, api_key, model, system, user_message, allowed_tools, db)
+    run_tool_loop_traced(cfg, system, user_message, allowed_tools, db)
         .await
         .map(|(text, _)| text)
 }
@@ -657,9 +688,7 @@ pub async fn run_tool_loop(
 /// Same loop as [`run_tool_loop`], but also returns every tool call it made.
 /// Used by the connection test, which has to prove tool use actually happened.
 pub async fn run_tool_loop_traced(
-    provider: &str,
-    api_key: &str,
-    model: &str,
+    cfg: &LlmConfig,
     system: &str,
     user_message: &str,
     allowed_tools: &[&str],
@@ -676,7 +705,7 @@ pub async fn run_tool_loop_traced(
         .build()
         .map_err(|e| e.to_string())?;
 
-    let is_anthropic = provider != "openrouter";
+    let is_anthropic = cfg.is_anthropic();
     let formatted_tools = if is_anthropic { tools_for_anthropic(&tool_defs) } else { tools_for_openai(&tool_defs) };
 
     let mut messages: Vec<Value> = vec![json!({"role": "user", "content": user_message})];
@@ -687,9 +716,9 @@ pub async fn run_tool_loop_traced(
         crate::services::logger::log("info", &format!("[agent:loop] iteration {}, messages: {}", iteration, messages.len()));
 
         let (text, tool_calls, _stop) = if is_anthropic {
-            call_anthropic(&client, api_key, model, system, &messages, &formatted_tools).await?
+            call_anthropic(&client, cfg, system, &messages, &formatted_tools, ANSWER_TOKENS).await?
         } else {
-            call_openai(&client, api_key, model, system, &messages, &formatted_tools).await?
+            call_openai(&client, cfg, system, &messages, &formatted_tools, ANSWER_TOKENS).await?
         };
 
         // No tool calls — this is the final answer
@@ -740,9 +769,9 @@ pub async fn run_tool_loop_traced(
 
     // Iteration cap hit — one final call and take whatever text comes back
     let (text, _, _) = if is_anthropic {
-        call_anthropic(&client, api_key, model, system, &messages, &formatted_tools).await?
+        call_anthropic(&client, cfg, system, &messages, &formatted_tools, ANSWER_TOKENS).await?
     } else {
-        call_openai(&client, api_key, model, system, &messages, &formatted_tools).await?
+        call_openai(&client, cfg, system, &messages, &formatted_tools, ANSWER_TOKENS).await?
     };
     Ok((text.unwrap_or_default(), trace))
 }

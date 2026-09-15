@@ -60,22 +60,10 @@ pub async fn agent_chat(
     history: Option<Vec<(String, String)>>,
 ) -> Result<AgentResponse, String> {
     crate::services::logger::log("info", &format!("[agent_chat] received message: {}, focused_task: {:?}", message, focused_task_id));
-    let (provider, api_key, model, memory, focused_task_context) = {
+    let (cfg, memory, focused_task_context) = {
         let conn = db.0.lock().map_err(|e| e.to_string())?;
 
-        let provider = get_setting_value(&conn, "llm_provider").unwrap_or_else(|| "anthropic".to_string());
-
-        let api_key = match provider.as_str() {
-            "openrouter" => get_setting_value(&conn, "openrouter_api_key"),
-            _ => get_setting_value(&conn, "anthropic_api_key"),
-        }
-        .ok_or("API_KEY_NOT_SET")?;
-
-        let default_model = match provider.as_str() {
-            "openrouter" => "anthropic/claude-sonnet-4",
-            _ => "claude-sonnet-4-20250514",
-        };
-        let model = get_setting_value(&conn, "llm_model").unwrap_or_else(|| default_model.to_string());
+        let cfg = crate::services::llm::LlmConfig::read(&conn)?;
 
         let memory = get_setting_value(&conn, "agent_memory").unwrap_or_default();
 
@@ -105,7 +93,7 @@ pub async fn agent_chat(
             ).ok()
         }).unwrap_or_default();
 
-        (provider, api_key, model, memory, focused_task_context)
+        (cfg, memory, focused_task_context)
     };
 
     let hist = history.unwrap_or_default();
@@ -123,7 +111,7 @@ pub async fn agent_chat(
     // otherwise kill this task and hang the panel forever.
     let outcome = tokio::select! {
         finished = AssertUnwindSafe(agent::chat(
-            &provider, &api_key, &model, &message, &hist,
+            &cfg, &message, &hist,
             &memory, &focused_task_context,
             &db.0, &reporter,
         )).catch_unwind() => finished.unwrap_or_else(|_| {
@@ -156,35 +144,29 @@ pub struct LlmTestResult {
     pub projects_in_db: usize,
 }
 
+/// What the settings screen can offer.
+///
+/// The list lives in the service next to the code that calls these services, so
+/// teaching the app a new provider is one row there and nothing here.
+#[tauri::command]
+pub fn llm_providers() -> &'static [crate::services::llm::Provider] {
+    crate::services::llm::PROVIDERS
+}
+
 /// Probe the configured LLM through the same tool-use loop the rest of the app
 /// uses, so the test fails exactly where the real features would fail.
 #[tauri::command]
 pub async fn test_llm_connection(db: State<'_, DbState>) -> Result<LlmTestResult, String> {
-    let (provider, api_key, model, projects_in_db) = {
+    let (cfg, projects_in_db) = {
         let conn = db.0.lock().map_err(|e| e.to_string())?;
 
-        let provider =
-            get_setting_value(&conn, "llm_provider").unwrap_or_else(|| "anthropic".to_string());
-
-        let api_key = match provider.as_str() {
-            "openrouter" => get_setting_value(&conn, "openrouter_api_key"),
-            _ => get_setting_value(&conn, "anthropic_api_key"),
-        }
-        .filter(|k| !k.trim().is_empty())
-        .ok_or("API_KEY_NOT_SET")?;
-
-        let default_model = match provider.as_str() {
-            "openrouter" => "anthropic/claude-sonnet-4",
-            _ => "claude-sonnet-4-20250514",
-        };
-        let model =
-            get_setting_value(&conn, "llm_model").unwrap_or_else(|| default_model.to_string());
+        let cfg = crate::services::llm::LlmConfig::read(&conn)?;
 
         let projects_in_db: i64 = conn
             .query_row("SELECT COUNT(*) FROM projects", [], |r| r.get(0))
             .unwrap_or(0);
 
-        (provider, api_key, model, projects_in_db as usize)
+        (cfg, projects_in_db as usize)
     };
 
     let system = "You are a connection self-test. You MUST call the list_projects tool \
@@ -194,14 +176,12 @@ pub async fn test_llm_connection(db: State<'_, DbState>) -> Result<LlmTestResult
 
     logger::log(
         "info",
-        &format!("[llm-test] probing provider={} model={}", provider, model),
+        &format!("[llm-test] probing provider={} model={}", cfg.provider_id, cfg.model),
     );
 
     let started = std::time::Instant::now();
     let (answer, trace) = agent::run_tool_loop_traced(
-        &provider,
-        &api_key,
-        &model,
+        &cfg,
         system,
         user,
         &["list_projects"],
@@ -222,8 +202,8 @@ pub async fn test_llm_connection(db: State<'_, DbState>) -> Result<LlmTestResult
     );
 
     Ok(LlmTestResult {
-        provider,
-        model,
+        provider: cfg.provider_id,
+        model: cfg.model,
         latency_ms,
         tools_called,
         answer: answer.trim().to_string(),

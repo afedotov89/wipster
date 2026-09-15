@@ -22,22 +22,10 @@ pub async fn ai_fill_task(
     db: State<'_, DbState>,
     task_id: String,
 ) -> Result<AiFillResult, String> {
-    let (provider, api_key, model, system_prompt, tracker_url_fill, title_is_placeholder) = {
+    let (cfg, system_prompt, tracker_url_fill, title_is_placeholder) = {
         let conn = db.0.lock().map_err(|e| e.to_string())?;
 
-        let provider = conn
-            .query_row("SELECT value FROM settings WHERE key = 'llm_provider'", [], |r| r.get::<_, String>(0))
-            .unwrap_or_else(|_| "anthropic".to_string());
-
-        let key_name = if provider == "openrouter" { "openrouter_api_key" } else { "anthropic_api_key" };
-        let api_key: String = conn
-            .query_row("SELECT value FROM settings WHERE key = ?1", [key_name], |r| r.get(0))
-            .map_err(|_| "API_KEY_NOT_SET")?;
-
-        let default_model = if provider == "openrouter" { "anthropic/claude-sonnet-4" } else { "claude-sonnet-4-20250514" };
-        let model = conn
-            .query_row("SELECT value FROM settings WHERE key = 'llm_model'", [], |r| r.get::<_, String>(0))
-            .unwrap_or_else(|_| default_model.to_string());
+        let cfg = crate::services::llm::LlmConfig::read(&conn)?;
 
         let task: Task = conn.query_row(
             &format!("SELECT {} FROM tasks WHERE id = ?1", TASK_COLUMNS),
@@ -46,7 +34,9 @@ pub async fn ai_fill_task(
         ).map_err(|e| format!("Task not found: {}", e))?;
 
         let task_ctx = llm_context::task_context(&conn, &task);
-        let credentials = crate::services::issues::Credentials::read(&db.0);
+        // From the connection in hand: this block holds the lock, and asking
+        // the mutex for it a second time would deadlock the command.
+        let credentials = crate::services::issues::Credentials::read(&conn);
 
         // The issue link is filled deterministically (not by the LLM): if the
         // field is empty but the task's text points at an issue — in any
@@ -124,7 +114,7 @@ Rules:
             fields = empty_fields.join(", "),
         );
 
-        (provider, api_key, model, system_prompt, tracker_url_fill, title_is_placeholder)
+        (cfg, system_prompt, tracker_url_fill, title_is_placeholder)
     };
 
     // Run a tool-use loop with a read-only toolset so the model can pull in
@@ -132,7 +122,7 @@ Rules:
     const FILL_TOOLS: &[&str] = &["read_issue", "search_tasks", "list_tasks", "get_task"];
     let user_msg = "Fill the empty fields. Use tools to gather context, then reply with only the JSON.";
     let text = crate::services::agent::run_tool_loop(
-        &provider, &api_key, &model, &system_prompt, user_msg, FILL_TOOLS, &db.0,
+        &cfg, &system_prompt, user_msg, FILL_TOOLS, &db.0,
     ).await?;
 
     // Parse JSON from response

@@ -102,7 +102,7 @@ pub fn tracker_status(db: State<'_, DbState>) -> Result<bool, String> {
 /// rule, shared with the fill itself, and it knows about every provider.
 #[tauri::command]
 pub fn is_bare_issue_reference(db: State<'_, DbState>, text: String) -> bool {
-    let credentials = crate::services::issues::Credentials::read(&db.0);
+    let credentials = crate::services::issues::Credentials::lock_and_read(&db.0);
     crate::services::issues::is_bare_reference(&text, &credentials)
 }
 

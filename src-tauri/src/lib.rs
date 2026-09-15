@@ -62,6 +62,7 @@ pub fn run() {
             commands::agent_commands::agent_cancel,
             commands::agent_commands::agent_confirm,
             commands::agent_commands::test_llm_connection,
+            commands::agent_commands::llm_providers,
             commands::autocomplete_commands::ai_autocomplete,
             commands::ai_fill_commands::ai_fill_task,
             commands::chat_commands::create_chat_session,

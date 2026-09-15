@@ -43,7 +43,7 @@ fn search_issues<'a>(db: &'a Mutex<Connection>, args: Value) -> Answer<'a> {
 
 fn create_issue<'a>(db: &'a Mutex<Connection>, args: Value) -> Answer<'a> {
     Box::pin(async move {
-        let credentials = Credentials::read(db);
+        let credentials = Credentials::lock_and_read(db);
         let queue = args["queue"].as_str().map(str::to_string);
         let project = args["project"].as_str().map(str::to_string);
         let summary = args["summary"].as_str().unwrap_or("").to_string();

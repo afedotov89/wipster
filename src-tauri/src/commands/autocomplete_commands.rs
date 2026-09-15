@@ -11,22 +11,10 @@ pub async fn ai_autocomplete(
     field_name: String,
     current_value: String,
 ) -> Result<String, String> {
-    let (provider, api_key, model, system_prompt_base, tracker_creds, task) = {
+    let (cfg, system_prompt_base, tracker_creds, task) = {
         let conn = db.0.lock().map_err(|e| e.to_string())?;
 
-        let provider = conn
-            .query_row("SELECT value FROM settings WHERE key = 'llm_provider'", [], |r| r.get::<_, String>(0))
-            .unwrap_or_else(|_| "anthropic".to_string());
-
-        let key_name = if provider == "openrouter" { "openrouter_api_key" } else { "anthropic_api_key" };
-        let api_key: String = conn
-            .query_row("SELECT value FROM settings WHERE key = ?1", [key_name], |r| r.get(0))
-            .map_err(|_| "API_KEY_NOT_SET")?;
-
-        let default_model = if provider == "openrouter" { "anthropic/claude-sonnet-4" } else { "claude-sonnet-4-20250514" };
-        let model = conn
-            .query_row("SELECT value FROM settings WHERE key = 'llm_model'", [], |r| r.get::<_, String>(0))
-            .unwrap_or_else(|_| default_model.to_string());
+        let cfg = crate::services::llm::LlmConfig::read(&conn)?;
 
         let task: Task = conn.query_row(
             &format!("SELECT {} FROM tasks WHERE id = ?1", TASK_COLUMNS),
@@ -61,7 +49,7 @@ Rules:
 - Use the same language as the task title{input_hint}"#
         );
 
-        (provider, api_key, model, system_prompt_base, tracker_creds, task)
+        (cfg, system_prompt_base, tracker_creds, task)
     };
 
     // Enrich with tracker context if credentials available
@@ -80,70 +68,15 @@ Rules:
         format!("{}\n\n{}", system_prompt_base, tracker_context)
     };
 
-    let client = reqwest::Client::builder().timeout(std::time::Duration::from_secs(60)).build().map_err(|e| e.to_string())?;
     let user_msg = "Fill in the field value:";
     let start = std::time::Instant::now();
 
     crate::services::logger::log("info", &format!("[autocomplete] START field={}, provider={}, model={}, prompt_len={}",
-        field_name, provider, model, system_prompt.len()));
+        field_name, cfg.provider_id, cfg.model, system_prompt.len()));
 
-    let text = if provider == "openrouter" {
-        let body = serde_json::json!({
-            "model": model,
-            "max_tokens": 2000,
-            "messages": [
-                { "role": "system", "content": system_prompt },
-                { "role": "user", "content": user_msg }
-            ]
-        });
-        let resp = client.post("https://openrouter.ai/api/v1/chat/completions")
-            .header("Authorization", format!("Bearer {}", api_key))
-            .header("content-type", "application/json")
-            .json(&body).send().await.map_err(|e| {
-                crate::services::logger::log("info", &format!("[autocomplete] HTTP error after {:.1}s: {}", start.elapsed().as_secs_f32(), e));
-                e.to_string()
-            })?;
-        let status = resp.status();
-        crate::services::logger::log("info", &format!("[autocomplete] response status={} after {:.1}s", status, start.elapsed().as_secs_f32()));
-        if !status.is_success() {
-            let body = resp.text().await.unwrap_or_default();
-            crate::services::logger::log("info", &format!("[autocomplete] API error body: {}", crate::services::logger::snippet(&body, 500)));
-            return Err(format!("API error {}: {}", status, body));
-        }
-        let j: serde_json::Value = resp.json().await.map_err(|e| e.to_string())?;
-        let content = j["choices"][0]["message"]["content"].as_str().unwrap_or("");
-        let reasoning = j["choices"][0]["message"]["reasoning"].as_str().unwrap_or("");
-        let finish = j["choices"][0]["finish_reason"].as_str().unwrap_or("");
-        let usage = &j["usage"];
-        crate::services::logger::log("info", &format!("[autocomplete] finish={}, content_len={}, reasoning_len={}, usage={}",
-            finish, content.len(), reasoning.len(), usage));
-        content.trim().to_string()
-    } else {
-        let body = serde_json::json!({
-            "model": model,
-            "max_tokens": 200,
-            "temperature": 0.3,
-            "system": system_prompt,
-            "messages": [{ "role": "user", "content": user_msg }]
-        });
-        let resp = client.post("https://api.anthropic.com/v1/messages")
-            .header("x-api-key", &api_key)
-            .header("anthropic-version", "2023-06-01")
-            .header("content-type", "application/json")
-            .json(&body).send().await.map_err(|e| {
-                crate::services::logger::log("info", &format!("[autocomplete] HTTP error after {:.1}s: {}", start.elapsed().as_secs_f32(), e));
-                e.to_string()
-            })?;
-        let status = resp.status();
-        crate::services::logger::log("info", &format!("[autocomplete] response status={} after {:.1}s", status, start.elapsed().as_secs_f32()));
-        if !status.is_success() {
-            let body = resp.text().await.unwrap_or_default();
-            crate::services::logger::log("info", &format!("[autocomplete] API error body: {}", crate::services::logger::snippet(&body, 500)));
-            return Err(format!("API error {}: {}", status, body));
-        }
-        let j: serde_json::Value = resp.json().await.map_err(|e| e.to_string())?;
-        j["content"][0]["text"].as_str().unwrap_or("").trim().to_string()
-    };
+    // One short answer, through the same path as every other feature — a field
+    // suggestion has no business knowing what an API looks like.
+    let text = crate::services::agent::complete(&cfg, &system_prompt, user_msg, 500).await?;
 
     crate::services::logger::log("info", &format!("[autocomplete] DONE field={}, result_len={}, elapsed={:.1}s, result='{}'",
         field_name, text.len(), start.elapsed().as_secs_f32(), crate::services::logger::snippet(&text, 100)));
