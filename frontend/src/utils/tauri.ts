@@ -242,6 +242,22 @@ export interface LlmTestResult {
   projects_in_db: number;
 }
 
+/** One released version, as written in CHANGELOG.md. */
+export interface Release {
+  version: string;
+  date: string;
+  /** Markdown — the bullets of that section. */
+  notes: string;
+}
+
+/** What this build is, and what every version of it brought. */
+export interface AppInfo {
+  version: string;
+  releases: Release[];
+}
+
+export const appInfo = () => invoke<AppInfo>("app_info");
+
 /** A service the app can be pointed at, as the backend describes it. */
 export interface LlmProvider {
   id: string;

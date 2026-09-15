@@ -25,13 +25,12 @@ import CheckIcon from "@mui/icons-material/Check";
 import Chip from "@mui/material/Chip";
 import BlockIcon from "@mui/icons-material/Block";
 import WarningAmberIcon from "@mui/icons-material/WarningAmber";
-import Markdown from "react-markdown";
-import remarkGfm from "remark-gfm";
 import { useTaskStore } from "@/stores/taskStore";
 import { useSettingsStore } from "@/stores/settingsStore";
 import { useProjectStore } from "@/stores/projectStore";
 import { useUiStore } from "@/stores/uiStore";
 import { useChatStore } from "@/stores/chatStore";
+import Markdown from "@/components/common/Markdown";
 import { useI18n } from "@/i18n";
 import { appLog } from "@/stores/logStore";
 import * as api from "@/utils/tauri";
@@ -48,81 +47,7 @@ type ActivityStep = Pick<api.AgentProgress, "seq" | "phase" | "tool" | "variant"
  * look like headings without shouting, and code has to stay readable. Kept as
  * one object so every message is typeset the same way.
  */
-const MARKDOWN_SX = {
-  fontSize: 13,
-  lineHeight: 1.5,
-  "& p": { m: 0, mb: 0.5 },
-  "& ul, & ol": { m: 0, pl: 2, mb: 0.5 },
-  "& li": { mb: 0.25 },
-  "& li > p": { mb: 0 },
-  "& code": { bgcolor: "var(--overlay-2)", px: 0.5, borderRadius: 0.5, fontSize: 12 },
-  "& pre": { bgcolor: "var(--overlay-2)", p: 1, borderRadius: 1, overflow: "auto", mb: 0.5 },
-  "& pre code": { bgcolor: "transparent", p: 0, fontSize: 11.5, lineHeight: 1.45 },
-  "& strong": { fontWeight: 600 },
-  "& a": {
-    color: "primary.main",
-    textDecoration: "underline",
-    textDecorationStyle: "dotted",
-    cursor: "pointer",
-  },
 
-  // Headings: a step up in weight, not in size — anything larger fights the
-  // chat for attention.
-  "& h1, & h2, & h3, & h4, & h5, & h6": {
-    m: 0,
-    mt: 1,
-    mb: 0.5,
-    fontSize: 13,
-    fontWeight: 700,
-    lineHeight: 1.4,
-    "&:first-of-type": { mt: 0 },
-  },
-  "& h1, & h2": { fontSize: 14 },
-
-  // Tables: the panel is narrow, so a wide one scrolls sideways rather than
-  // squeezing its columns into single letters.
-  "& table": {
-    width: "100%",
-    my: 0.75,
-    borderCollapse: "collapse",
-    fontSize: 12,
-    display: "block",
-    overflowX: "auto",
-  },
-  "& th, & td": {
-    textAlign: "left",
-    verticalAlign: "top",
-    px: 0.75,
-    py: 0.5,
-    borderBottom: "1px solid",
-    borderColor: "var(--overlay-2)",
-  },
-  "& th": {
-    fontWeight: 600,
-    whiteSpace: "nowrap",
-    color: "text.secondary",
-    borderBottomColor: "var(--overlay-3)",
-  },
-  "& tbody tr:last-of-type td": { borderBottom: "none" },
-  "& td:first-of-type": { pl: 0 },
-  "& th:first-of-type": { pl: 0 },
-
-  "& blockquote": {
-    m: 0,
-    mb: 0.5,
-    pl: 1,
-    borderLeft: "2px solid",
-    borderColor: "var(--overlay-3)",
-    color: "text.secondary",
-  },
-  "& hr": {
-    border: 0,
-    borderTop: "1px solid",
-    borderColor: "var(--overlay-2)",
-    my: 1,
-  },
-  "& img": { maxWidth: "100%", borderRadius: 1 },
-} as const;
 
 /// How many finished steps stay on screen; older ones scroll out of the trail.
 const ACTIVITY_TRAIL = 6;
@@ -633,9 +558,8 @@ export default function AgentPanel() {
                         }
                       }
                     }}
-                    sx={MARKDOWN_SX}
                   >
-                    {msg.text && <Markdown remarkPlugins={[remarkGfm]}>{msg.text}</Markdown>}
+                    {msg.text && <Markdown>{msg.text}</Markdown>}
                   </Box>
                   {msg.pending_confirmations && msg.pending_confirmations.length > 0 && (
                     <Box

@@ -159,6 +159,21 @@ const ru = {
   wipLimitSetting: "Задач в работе одновременно",
   wipLimitSettingHint: "Жёсткий предел для колонки «В работе». Чем меньше, тем больше доводится до конца.",
 
+  // Updates
+  whatsNew: "Что нового",
+  updateAvailable: (v: string) => `Доступно обновление ${v}`,
+  updateNow: "Обновить",
+  updateDownloading: "Загрузка...",
+  updateReady: (v: string) => `Обновление ${v} готово`,
+  updateRestart: "Перезапустить",
+  updatedTo: (v: string) => `Обновлено до ${v}`,
+  about: "О программе",
+  version: "Версия",
+  releaseHistory: "История версий",
+  currentVersion: "Текущая",
+  noReleaseNotes: "Для этой версии заметок нет",
+  updatePending: (v: string) => `Версия ${v} — доступна для установки`,
+
   // Settings - Integrations
   integrations: "Интеграции",
   yandexTracker: "Яндекс Трекер",

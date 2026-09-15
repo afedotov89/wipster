@@ -1,4 +1,5 @@
 pub mod agent_commands;
+pub mod app_commands;
 pub mod ai_fill_commands;
 pub mod autocomplete_commands;
 pub mod changelog_commands;

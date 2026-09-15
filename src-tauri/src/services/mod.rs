@@ -8,6 +8,7 @@ pub mod tracker_auth;
 pub mod undo_redo;
 pub mod wip_guard;
 pub mod project_tree;
+pub mod release_notes;
 pub mod tools;
 pub mod ui_bridge;
 pub mod gitlab;

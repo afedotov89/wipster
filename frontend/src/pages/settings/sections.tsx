@@ -5,12 +5,14 @@ import PaletteOutlinedIcon from "@mui/icons-material/PaletteOutlined";
 import AutoAwesomeIcon from "@mui/icons-material/AutoAwesome";
 import HubOutlinedIcon from "@mui/icons-material/HubOutlined";
 import TerminalIcon from "@mui/icons-material/Terminal";
+import InfoOutlinedIcon from "@mui/icons-material/InfoOutlined";
 import type { Translations } from "@/i18n";
 import GeneralPanel from "./GeneralPanel";
 import AppearancePanel from "./AppearancePanel";
 import AssistantPanel from "./AssistantPanel";
 import IntegrationsPanel from "./IntegrationsPanel";
 import LogsPanel from "./LogsPanel";
+import AboutPanel from "./AboutPanel";
 
 export interface SettingsSection {
   id: string;
@@ -33,6 +35,7 @@ export const SETTINGS_SECTIONS = [
   { id: "assistant", Icon: AutoAwesomeIcon, title: (t) => t.aiConnector, Panel: AssistantPanel },
   { id: "integrations", Icon: HubOutlinedIcon, title: (t) => t.integrations, Panel: IntegrationsPanel },
   { id: "logs", Icon: TerminalIcon, title: (t) => t.settingsLogs, Panel: LogsPanel },
+  { id: "about", Icon: InfoOutlinedIcon, title: (t) => t.about, Panel: AboutPanel },
 ] as const satisfies readonly SettingsSection[];
 
 export type SettingsSectionId = (typeof SETTINGS_SECTIONS)[number]["id"];

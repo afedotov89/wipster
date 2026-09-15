@@ -36,6 +36,24 @@ jobs:
         working-directory: frontend
         run: npm ci
 
+      # The notes the user will read come from CHANGELOG.md — the same text the
+      # app ships and shows in "About". Written once, never retyped for the
+      # release, and a tag without a section stops the release right here.
+      - name: Release notes for this tag
+        id: notes
+        run: |
+          VERSION="${GITHUB_REF_NAME#v}"
+          BODY=$(awk -v v="## $VERSION " 'index($0, v) == 1 { flag = 1; next } /^## / { flag = 0 } flag { print }' CHANGELOG.md)
+          if [ -z "$(printf '%s' "$BODY" | tr -d '[:space:]')" ]; then
+            echo "::error::CHANGELOG.md has no section for $VERSION — add '## $VERSION — YYYY-MM-DD' before tagging."
+            exit 1
+          fi
+          {
+            echo "body<<RELEASE_NOTES_EOF"
+            printf '%s\n' "$BODY"
+            echo "RELEASE_NOTES_EOF"
+          } >> "$GITHUB_OUTPUT"
+
       - name: Build and release
         uses: tauri-apps/tauri-action@v0
         env:
@@ -45,7 +63,7 @@ jobs:
         with:
           tagName: ${{ github.ref_name }}
           releaseName: 'Wipster ${{ github.ref_name }}'
-          releaseBody: 'See the assets below to download and install.'
+          releaseBody: ${{ steps.notes.outputs.body }}
           releaseDraft: false
           prerelease: false
           args: ${{ matrix.args }}

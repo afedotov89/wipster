@@ -149,6 +149,21 @@ const en = {
   wipLimitSetting: "Tasks in progress at once",
   wipLimitSettingHint: "The hard cap on the Doing column. Fewer means finishing more.",
 
+  // Updates
+  whatsNew: "What's new",
+  updateAvailable: (v: string) => `Update ${v} available`,
+  updateNow: "Update",
+  updateDownloading: "Downloading...",
+  updateReady: (v: string) => `Update ${v} ready`,
+  updateRestart: "Restart",
+  updatedTo: (v: string) => `Updated to ${v}`,
+  about: "About",
+  version: "Version",
+  releaseHistory: "Version history",
+  currentVersion: "Current",
+  noReleaseNotes: "No notes for this version",
+  updatePending: (v: string) => `Version ${v} — ready to install`,
+
   // Settings - Integrations
   integrations: "Integrations",
   yandexTracker: "Yandex Tracker",

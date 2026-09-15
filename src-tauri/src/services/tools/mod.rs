@@ -17,6 +17,7 @@ use std::future::Future;
 use std::pin::Pin;
 use std::sync::Mutex;
 
+pub mod app;
 pub mod coverage;
 pub mod memory;
 pub mod projects;
@@ -86,6 +87,7 @@ impl Tool {
 pub fn registry() -> Vec<Tool> {
     let mut all = Vec::new();
     all.extend(tasks::tools());
+    all.extend(app::tools());
     all.extend(projects::tools());
     all.extend(memory::tools());
     all.extend(issues::tools());
