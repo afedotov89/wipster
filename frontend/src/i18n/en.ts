@@ -156,6 +156,8 @@ const en = {
   chooseFiles: "Choose files",
   showInFolder: "Show folder",
 
+  expandTask: "Fill the window",
+  collapseTask: "Back to the panel",
   // Task fields
   taskFields: "Task fields",
   taskFieldsHint: "What a task shows, and in what order. A field switched off is only hidden — everything written in it stays.",

@@ -27,6 +27,8 @@ import {
   Autocomplete,
 } from "@mui/material";
 import CloseIcon from "@mui/icons-material/Close";
+import OpenInFullIcon from "@mui/icons-material/OpenInFull";
+import CloseFullscreenIcon from "@mui/icons-material/CloseFullscreen";
 import AutoAwesomeIcon from "@mui/icons-material/AutoAwesome";
 import Inventory2OutlinedIcon from "@mui/icons-material/Inventory2Outlined";
 import CheckBoxOutlineBlankIcon from "@mui/icons-material/CheckBoxOutlineBlank";
@@ -259,6 +261,17 @@ export default function TaskDetailPanel() {
   const [customValues, setCustomValues] = useState<Record<string, unknown>>({});
 
   const { selectedTaskId, closeDetail } = useUiStore();
+  const expanded = useUiStore((s) => s.detailExpanded);
+  // The two columns wait for the room to exist.
+  //
+  // Switching the layout the moment the button is pressed put a 320px column
+  // and a gap into a 380px panel and squeezed the rest to nothing for the third
+  // of a second the panel was still growing. The content reflows when the
+  // growth is done; collapsing goes back to one column at once, before the
+  // shrink, for the same reason.
+  const [wideLayout, setWideLayout] = useState(false);
+  const toggleExpanded = useUiStore((s) => s.toggleDetailExpanded);
+  const setExpanded = useUiStore((s) => s.setDetailExpanded);
   const { update, findTask } = useTaskStore();
   const { projects } = useProjectStore();
   const { refresh } = useHistoryStore();
@@ -325,6 +338,29 @@ export default function TaskDetailPanel() {
     getPromisedToOptions().then(setPromisedToOptions).catch(() => {});
     getEstimateOptions().then(setEstimateOptions).catch(() => {});
   }, []);
+
+  useEffect(() => {
+    if (!expanded) {
+      setWideLayout(false);
+      return;
+    }
+    const settled = setTimeout(() => setWideLayout(true), 340);
+    return () => clearTimeout(settled);
+  }, [expanded]);
+
+  // Escape steps back out: a task filling the window returns to its strip
+  // first, and only a second press closes it.
+  useEffect(() => {
+    if (!expanded) return;
+    const onKeyDown = (e: KeyboardEvent) => {
+      if (e.key !== "Escape") return;
+      e.preventDefault();
+      e.stopPropagation();
+      setExpanded(false);
+    };
+    window.addEventListener("keydown", onKeyDown, true);
+    return () => window.removeEventListener("keydown", onKeyDown, true);
+  }, [expanded, setExpanded]);
 
   // The list of fields is the same for every task, so it is fetched once.
   useEffect(() => {
@@ -591,7 +627,7 @@ export default function TaskDetailPanel() {
           onChange={setDod}
           onBlur={() => save("dod", dod)}
           multiline
-          rows={2}
+          rows={expanded ? 5 : 2}
           suggestion={suggestion}
           loading={aiLoading}
           activeField={activeField}
@@ -701,8 +737,8 @@ export default function TaskDetailPanel() {
           size="small"
           label={t.comment}
           multiline
-          minRows={3}
-          maxRows={20}
+          minRows={expanded ? 8 : 3}
+          maxRows={expanded ? 30 : 20}
           value={comment}
           onChange={(e) => setComment(e.target.value)}
           onBlur={() => save("comment", comment || null)}
@@ -716,6 +752,33 @@ export default function TaskDetailPanel() {
   };
 
   const orderedFields = fields.filter((field) => field.enabled);
+
+  /**
+   * Which side of the expanded view a field belongs on.
+   *
+   * What a task *is* — its project, priority, dates, estimates — is a column of
+   * short answers. What it *carries* — the criterion, the steps, texts, links,
+   * files — wants width and is what the expanded view exists for. The rule is
+   * the field's type, so a custom field lands on the right side by itself.
+   */
+  const COMPACT_KINDS = ["select", "date", "text", "number", "checkbox"];
+  const properties = orderedFields.filter((field) => COMPACT_KINDS.includes(field.kind));
+  const materials = orderedFields.filter((field) => !COMPACT_KINDS.includes(field.kind));
+
+  const renderField = (field: (typeof orderedFields)[number]) => (
+    <Fragment key={field.id}>
+      {field.builtin ? (
+        builtinField(field.key)
+      ) : (
+        <CustomFieldEditor
+          field={field}
+          value={customValues[field.id]}
+          expanded={expanded}
+          onChange={(value) => saveCustomValue(field.id, value)}
+        />
+      )}
+    </Fragment>
+  );
 
   /**
    * A value the user typed into a field of their own.
@@ -737,8 +800,22 @@ export default function TaskDetailPanel() {
   };
 
   return (
-    <Box sx={{ p: 2, display: "flex", flexDirection: "column", gap: 2 }}>
-      <Box sx={{ display: "flex", alignItems: "center", justifyContent: "space-between" }}>
+    <Box
+      sx={{
+        p: expanded ? 3 : 2,
+        maxWidth: expanded ? 1200 : "none",
+        mx: expanded ? "auto" : 0,
+        display: "flex",
+        flexDirection: "column",
+        gap: 2,
+        transition: "padding 340ms cubic-bezier(0.32, 0.72, 0, 1)",
+        "@media (prefers-reduced-motion: reduce)": { transition: "none" },
+      }}
+    >
+      <Box
+        onDoubleClick={toggleExpanded}
+        sx={{ display: "flex", alignItems: "center", justifyContent: "space-between" }}
+      >
         <Box sx={{ display: "flex", gap: 0.5, alignItems: "center" }}>
           <Chip
             label={statusLabel(t, task.status as TaskStatus)}
@@ -770,7 +847,18 @@ export default function TaskDetailPanel() {
               <AutoAwesomeIcon fontSize="small" />
             )}
           </IconButton>
-          <IconButton size="small" onClick={closeDetail}>
+          <IconButton
+            size="small"
+            onClick={toggleExpanded}
+            title={expanded ? t.collapseTask : t.expandTask}
+          >
+            {expanded ? (
+              <CloseFullscreenIcon sx={{ fontSize: 15 }} />
+            ) : (
+              <OpenInFullIcon sx={{ fontSize: 15 }} />
+            )}
+          </IconButton>
+          <IconButton size="small" onClick={closeDetail} title={t.close}>
             <CloseIcon fontSize="small" />
           </IconButton>
         </Box>
@@ -802,26 +890,39 @@ export default function TaskDetailPanel() {
           fullWidth
           variant="standard"
           value={title}
+          multiline={expanded}
           onChange={(e) => setTitle(e.target.value)}
           onBlur={() => {
             if (title.trim() && title !== task.title) save("title", title.trim());
           }}
-          InputProps={{ sx: { fontSize: 16, fontWeight: 600 } }}
+          InputProps={{ sx: { fontSize: expanded ? 22 : 16, fontWeight: 600 } }}
         />
 
-        {orderedFields.map((field) => (
-          <Fragment key={field.id}>
-            {field.builtin ? (
-              builtinField(field.key)
-            ) : (
-              <CustomFieldEditor
-                field={field}
-                value={customValues[field.id]}
-                onChange={(value) => saveCustomValue(field.id, value)}
-              />
-            )}
-          </Fragment>
-        ))}
+        {wideLayout ? (
+          <Box
+            sx={{
+              display: "grid",
+              gridTemplateColumns: "minmax(260px, 320px) minmax(0, 1fr)",
+              gap: 4,
+              alignItems: "start",
+              animation: "fieldsSettle 180ms ease-out",
+              "@keyframes fieldsSettle": {
+                from: { opacity: 0.6 },
+                to: { opacity: 1 },
+              },
+              "@media (prefers-reduced-motion: reduce)": { animation: "none" },
+            }}
+          >
+            <Box sx={{ display: "flex", flexDirection: "column", gap: 2 }}>
+              {properties.map(renderField)}
+            </Box>
+            <Box sx={{ display: "flex", flexDirection: "column", gap: 2.5 }}>
+              {materials.map(renderField)}
+            </Box>
+          </Box>
+        ) : (
+          orderedFields.map(renderField)
+        )}
 
         {task.return_ref && (() => {
           try {

@@ -23,6 +23,8 @@ const asList = (value: unknown): string[] =>
 interface Props {
   field: TaskField;
   value: unknown;
+  /** The task fills the window: text has room to be read, not just stored. */
+  expanded?: boolean;
   onChange: (value: unknown) => void;
 }
 
@@ -34,7 +36,7 @@ interface Props {
  * files you can open. A generic "custom field" that is always a string is how
  * these features usually end, and it is why nobody uses them.
  */
-export default function CustomFieldEditor({ field, value, onChange }: Props) {
+export default function CustomFieldEditor({ field, value, expanded, onChange }: Props) {
   const { t } = useI18n();
   const label = field.label ?? field.key;
 
@@ -50,8 +52,8 @@ export default function CustomFieldEditor({ field, value, onChange }: Props) {
             fullWidth
             size="small"
             multiline
-            minRows={3}
-            maxRows={16}
+            minRows={expanded ? 6 : 3}
+            maxRows={expanded ? 30 : 16}
             value={draft}
             onChange={(e) => setDraft(e.target.value)}
             onBlur={() => draft !== asText(value) && onChange(draft)}

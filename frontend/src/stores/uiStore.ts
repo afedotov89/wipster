@@ -10,6 +10,12 @@ interface UiState {
   view: View;
   selectedTaskId: string | null;
   detailOpen: boolean;
+  /**
+   * Whether the open task fills the window instead of sitting in its strip.
+   * A way of looking, not a property of the task: it survives switching tasks
+   * and is put away when the panel closes.
+   */
+  detailExpanded: boolean;
   swapDialogOpen: boolean;
   swapPendingTaskId: string | null;
   quickAddOpen: boolean;
@@ -30,6 +36,8 @@ interface UiState {
   selectTask: (id: string | null) => void;
   openDetail: (id: string) => void;
   closeDetail: () => void;
+  setDetailExpanded: (expanded: boolean) => void;
+  toggleDetailExpanded: () => void;
   openSwapDialog: (taskId: string) => void;
   closeSwapDialog: () => void;
   toggleQuickAdd: () => void;
@@ -39,6 +47,7 @@ export const useUiStore = create<UiState>((set) => ({
   view: "project",
   selectedTaskId: null,
   detailOpen: false,
+  detailExpanded: false,
   swapDialogOpen: false,
   swapPendingTaskId: null,
   quickAddOpen: false,
@@ -54,7 +63,9 @@ export const useUiStore = create<UiState>((set) => ({
   setSettingsSection: (settingsSection) => set({ settingsSection }),
   selectTask: (id) => set({ selectedTaskId: id }),
   openDetail: (id) => set({ selectedTaskId: id, detailOpen: true }),
-  closeDetail: () => set({ detailOpen: false, selectedTaskId: null }),
+  closeDetail: () => set({ detailOpen: false, selectedTaskId: null, detailExpanded: false }),
+  setDetailExpanded: (detailExpanded) => set({ detailExpanded }),
+  toggleDetailExpanded: () => set((s) => ({ detailExpanded: !s.detailExpanded })),
   openSwapDialog: (taskId) =>
     set({ swapDialogOpen: true, swapPendingTaskId: taskId }),
   closeSwapDialog: () =>

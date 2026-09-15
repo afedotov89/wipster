@@ -24,7 +24,7 @@ interface Props {
 }
 
 export default function AppShell({ windowButtonsOverlap }: Props) {
-  const { view, detailOpen, closeDetail, settingsOpen } = useUiStore();
+  const { view, detailOpen, detailExpanded, closeDetail, settingsOpen } = useUiStore();
   useSettingsShortcut();
   // One drag context around the sidebar and the board, so a task can be dragged
   // out of a column and onto any project.
@@ -86,10 +86,17 @@ export default function AppShell({ windowButtonsOverlap }: Props) {
           {detailOpen && !settingsOpen && (
             <Box
               sx={{
-                width: 380,
-                borderLeft: 1,
+                // The panel grows into the window rather than being replaced by
+                // a bigger one: same element, same fields, same caret — only
+                // wider. The board is squeezed out as it goes, which is why one
+                // animated property is enough.
+                width: detailExpanded ? "100%" : 380,
+                flexShrink: 0,
+                borderLeft: detailExpanded ? 0 : 1,
                 borderColor: "divider",
                 overflow: "auto",
+                transition: "width 340ms cubic-bezier(0.32, 0.72, 0, 1)",
+                "@media (prefers-reduced-motion: reduce)": { transition: "none" },
               }}
             >
               <TaskDetailPanel />
