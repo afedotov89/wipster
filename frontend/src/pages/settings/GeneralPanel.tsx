@@ -11,6 +11,8 @@ export default function GeneralPanel() {
   const { t, locale, setLocale } = useI18n();
   const wipLimit = useSettingsStore((s) => s.wipLimit);
   const setWipLimit = useSettingsStore((s) => s.setWipLimit);
+  const taskDetailMode = useSettingsStore((s) => s.taskDetailMode);
+  const setTaskDetailMode = useSettingsStore((s) => s.setTaskDetailMode);
 
   return (
     <Box sx={{ display: "flex", flexDirection: "column", gap: 2, maxWidth: 620 }}>
@@ -72,6 +74,32 @@ export default function GeneralPanel() {
         </Box>
         <Typography variant="caption" color="text.secondary" sx={{ display: "block", mt: 0.75 }}>
           {t.wipLimitSettingHint}
+        </Typography>
+      </Box>
+
+      {/* How a task opens. Both ways are one click apart anyway — this is about
+          which one you get without asking. */}
+      <Box>
+        <Typography variant="body2" color="text.secondary" sx={{ mb: 1 }}>
+          {t.taskDetailMode}
+        </Typography>
+        <ToggleButtonGroup
+          exclusive
+          size="small"
+          value={taskDetailMode}
+          onChange={(_e, val) => {
+            if (val) void setTaskDetailMode(val);
+          }}
+        >
+          <ToggleButton value="panel" sx={{ px: 2, fontSize: 12 }}>
+            {t.taskDetailModePanel}
+          </ToggleButton>
+          <ToggleButton value="wide" sx={{ px: 2, fontSize: 12 }}>
+            {t.taskDetailModeWide}
+          </ToggleButton>
+        </ToggleButtonGroup>
+        <Typography variant="caption" color="text.secondary" sx={{ display: "block", mt: 0.75 }}>
+          {t.taskDetailModeHint}
         </Typography>
       </Box>
       </SettingsGroup>

@@ -5,6 +5,7 @@ pub mod autocomplete_commands;
 pub mod changelog_commands;
 pub mod chat_commands;
 pub mod context_commands;
+pub mod file_commands;
 pub mod project_commands;
 pub mod task_commands;
 pub mod task_field_commands;

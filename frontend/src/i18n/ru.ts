@@ -163,9 +163,14 @@ const ru = {
   remove: "Убрать",
   addLink: "Добавить ссылку…",
   addLine: "Добавить строку…",
+  dropFilesHint: "или перетащите сюда",
   chooseFiles: "Выбрать файлы",
   showInFolder: "Показать папку",
 
+  taskDetailMode: "Как открывать задачу",
+  taskDetailModePanel: "В панели",
+  taskDetailModeWide: "На всё окно",
+  taskDetailModeHint: "Любую задачу всё равно можно развернуть и свернуть кнопкой ⤢ в её шапке.",
   expandTask: "Развернуть на всё окно",
   collapseTask: "Свернуть в панель",
   // Task fields

@@ -153,9 +153,14 @@ const en = {
   remove: "Remove",
   addLink: "Add a link…",
   addLine: "Add a line…",
+  dropFilesHint: "or drop them here",
   chooseFiles: "Choose files",
   showInFolder: "Show folder",
 
+  taskDetailMode: "Opening a task",
+  taskDetailModePanel: "In the panel",
+  taskDetailModeWide: "Filling the window",
+  taskDetailModeHint: "Either way, ⤢ in a task's header switches it there and back.",
   expandTask: "Fill the window",
   collapseTask: "Back to the panel",
   // Task fields

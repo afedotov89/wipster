@@ -5,6 +5,7 @@ import { useThemeStore } from "@/theme/store";
 import { useUiStore } from "@/stores/uiStore";
 import { useProjectStore } from "@/stores/projectStore";
 import { useI18n, type Locale } from "@/i18n";
+import { useSettingsStore } from "@/stores/settingsStore";
 import { SETTINGS_SECTIONS, isSettingsSectionId } from "@/pages/settings/sections";
 import { setSetting } from "@/utils/tauri";
 import { appLog } from "@/stores/logStore";
@@ -53,6 +54,11 @@ export function applyAiUiCommand(action: string, params: Record<string, unknown>
       } else if (view === "all-doing" || view === "archive") {
         useUiStore.getState().setView(view);
       }
+      return;
+    }
+    case "set_task_detail_mode": {
+      const mode = params.mode === "wide" || params.mode === "panel" ? params.mode : null;
+      if (mode) void useSettingsStore.getState().setTaskDetailMode(mode);
       return;
     }
     case "open_task": {

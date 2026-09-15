@@ -65,6 +65,8 @@ pub fn run() {
             commands::agent_commands::test_llm_connection,
             commands::agent_commands::llm_providers,
             commands::app_commands::app_info,
+            commands::file_commands::open_path,
+            commands::file_commands::reveal_path,
             commands::task_field_commands::task_field_kinds,
             commands::task_field_commands::list_task_fields,
             commands::task_field_commands::removed_task_fields,

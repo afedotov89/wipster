@@ -3,6 +3,7 @@ import {
   DEFAULT_SETTINGS_SECTION,
   type SettingsSectionId,
 } from "@/pages/settings/sections";
+import { useSettingsStore } from "@/stores/settingsStore";
 
 type View = "project" | "all-doing" | "archive";
 
@@ -62,7 +63,14 @@ export const useUiStore = create<UiState>((set) => ({
   closeSettings: () => set({ settingsOpen: false }),
   setSettingsSection: (settingsSection) => set({ settingsSection }),
   selectTask: (id) => set({ selectedTaskId: id }),
-  openDetail: (id) => set({ selectedTaskId: id, detailOpen: true }),
+  // How it opens is the user's standing preference, not the caller's business:
+  // the board, the assistant and a keyboard shortcut all end up here.
+  openDetail: (id) =>
+    set({
+      selectedTaskId: id,
+      detailOpen: true,
+      detailExpanded: useSettingsStore.getState().taskDetailMode === "wide",
+    }),
   closeDetail: () => set({ detailOpen: false, selectedTaskId: null, detailExpanded: false }),
   setDetailExpanded: (detailExpanded) => set({ detailExpanded }),
   toggleDetailExpanded: () => set((s) => ({ detailExpanded: !s.detailExpanded })),

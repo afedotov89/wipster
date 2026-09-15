@@ -1,3 +1,4 @@
+import { useEffect } from "react";
 import { Box } from "@mui/material";
 import { DndContext, DragOverlay, closestCenter } from "@dnd-kit/core";
 import Sidebar from "./Sidebar";
@@ -12,6 +13,7 @@ import TaskDetailPanel from "@/components/task/TaskDetailPanel";
 import SwapDialog from "@/components/task/SwapDialog";
 import AgentPanel from "@/components/agent/AgentPanel";
 import { useUiStore } from "@/stores/uiStore";
+import { useProjectStore } from "@/stores/projectStore";
 import { useSettingsShortcut } from "@/hooks/useSettingsShortcut";
 
 interface Props {
@@ -25,7 +27,15 @@ interface Props {
 
 export default function AppShell({ windowButtonsOverlap }: Props) {
   const { view, detailOpen, detailExpanded, closeDetail, settingsOpen } = useUiStore();
+  const setDetailExpanded = useUiStore((s) => s.setDetailExpanded);
+  const selectedProjectId = useProjectStore((s) => s.selectedProjectId);
   useSettingsShortcut();
+
+  // An expanded task covers the board. Asking for another board — or another
+  // project — is asking to see it, so the task steps back into its strip.
+  useEffect(() => {
+    setDetailExpanded(false);
+  }, [view, selectedProjectId, setDetailExpanded]);
   // One drag context around the sidebar and the board, so a task can be dragged
   // out of a column and onto any project.
   const { sensors, activeTask, onDragStart, onDragEnd } = useBoardDnd();

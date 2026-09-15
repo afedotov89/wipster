@@ -3,16 +3,7 @@ import { Box, IconButton, TextField, Tooltip } from "@mui/material";
 import CloseIcon from "@mui/icons-material/Close";
 import LaunchIcon from "@mui/icons-material/Launch";
 import { useI18n } from "@/i18n";
-
-async function openExternally(target: string) {
-  const href = /^[a-z]+:\/\//i.test(target) ? target : `https://${target}`;
-  try {
-    const { open } = await import("@tauri-apps/plugin-shell");
-    await open(href);
-  } catch {
-    window.open(href, "_blank");
-  }
-}
+import { openTarget } from "@/utils/open";
 
 interface Props {
   items: string[];
@@ -73,7 +64,7 @@ export default function ListFieldEditor({ items, onChange, links, placeholder }:
           <Box className="row-actions" sx={{ display: "flex", opacity: 0, transition: "opacity 0.15s" }}>
             {links && (
               <Tooltip title={t.openLink}>
-                <IconButton size="small" onClick={() => openExternally(item)} sx={{ opacity: 0.6 }}>
+                <IconButton size="small" onClick={() => void openTarget(item)} sx={{ opacity: 0.6 }}>
                   <LaunchIcon sx={{ fontSize: 14 }} />
                 </IconButton>
               </Tooltip>

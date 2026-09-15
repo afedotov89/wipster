@@ -11,6 +11,7 @@ import { PRIORITY_COLORS } from "@/utils/constants";
 import type { Priority } from "@/utils/tauri";
 import { useUiStore } from "@/stores/uiStore";
 import { issueLabel } from "@/utils/issueLabel";
+import { openTarget } from "@/utils/open";
 import { useTaskStore } from "@/stores/taskStore";
 import { useProjectStore } from "@/stores/projectStore";
 import { useAiFillStore } from "@/stores/aiFillStore";
@@ -191,15 +192,9 @@ export default function TaskCard({ task, onMove }: Props) {
                   size="small"
                   variant="outlined"
                   sx={{ height: 20, fontSize: 10, cursor: "pointer", color: "rgb(78,129,238)", borderColor: "rgb(78,129,238)" }}
-                  onClick={async (e) => {
+                  onClick={(e) => {
                     e.stopPropagation();
-                    const href = url.startsWith("http") ? url : `https://${url}`;
-                    try {
-                      const { open } = await import("@tauri-apps/plugin-shell");
-                      await open(href);
-                    } catch {
-                      window.open(href, "_blank");
-                    }
+                    void openTarget(url);
                   }}
                 />
               );

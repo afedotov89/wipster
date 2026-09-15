@@ -46,6 +46,7 @@ import { appLog } from "@/stores/logStore";
 import { useTaskFieldStore } from "@/stores/taskFieldStore";
 import CustomFieldEditor from "@/components/task/fields/CustomFieldEditor";
 import { useAiFillStore } from "@/stores/aiFillStore";
+import { openTarget } from "@/utils/open";
 import type { TaskStatus } from "@/utils/tauri";
 
 interface ChecklistItem {
@@ -354,6 +355,8 @@ export default function TaskDetailPanel() {
     if (!expanded) return;
     const onKeyDown = (e: KeyboardEvent) => {
       if (e.key !== "Escape") return;
+      // The assistant's panel is nearer the user than the task behind it.
+      if (useUiStore.getState().agentPanelOpen) return;
       e.preventDefault();
       e.stopPropagation();
       setExpanded(false);
@@ -716,15 +719,11 @@ export default function TaskDetailPanel() {
             InputLabelProps={{ sx: { fontSize: 13 } }}
           />
           {trackerUrl && (
-            <IconButton size="small" onClick={async () => {
-              const url = trackerUrl.startsWith("http") ? trackerUrl : `https://${trackerUrl}`;
-              try {
-                const { open } = await import("@tauri-apps/plugin-shell");
-                await open(url);
-              } catch {
-                window.open(url, "_blank");
-              }
-            }} sx={{ flexShrink: 0, opacity: 0.5 }}>
+            <IconButton
+              size="small"
+              onClick={() => void openTarget(trackerUrl)}
+              sx={{ flexShrink: 0, opacity: 0.5 }}
+            >
               <span style={{ fontSize: 14 }}>↗</span>
             </IconButton>
           )}
@@ -802,7 +801,11 @@ export default function TaskDetailPanel() {
   return (
     <Box
       sx={{
-        p: expanded ? 3 : 2,
+        px: expanded ? 3 : 2,
+        // The header doubles as the titlebar when expanded, so it sits near the
+        // top edge where a titlebar belongs.
+        pt: expanded ? 1.5 : 2,
+        pb: expanded ? 3 : 2,
         maxWidth: expanded ? 1200 : "none",
         mx: expanded ? "auto" : 0,
         display: "flex",
@@ -813,8 +816,20 @@ export default function TaskDetailPanel() {
       }}
     >
       <Box
-        onDoubleClick={toggleExpanded}
-        sx={{ display: "flex", alignItems: "center", justifyContent: "space-between" }}
+        // Collapsed, a double-click is a shortcut to expand. Expanded, this row
+        // is the window's titlebar, and double-clicking a titlebar is the
+        // system's gesture for zooming the window — not ours to take.
+        onDoubleClick={expanded ? undefined : toggleExpanded}
+        // Filling the window makes this row the top of the window, and the top
+        // of a window is what you drag it by. In the strip the board's own band
+        // is still up there, so the attribute would only steal clicks.
+        data-tauri-drag-region={expanded ? true : undefined}
+        sx={{
+          display: "flex",
+          alignItems: "center",
+          justifyContent: "space-between",
+          ...(expanded ? { minHeight: 32 } : null),
+        }}
       >
         <Box sx={{ display: "flex", gap: 0.5, alignItems: "center" }}>
           <Chip

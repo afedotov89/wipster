@@ -97,6 +97,26 @@ pub fn tools() -> Vec<Tool> {
             handler: Handler::Ui("open_view"),
         },
         Tool {
+            name: "set_task_detail_mode",
+            summary: "Choose how a task opens: in its side panel, or filling the window",
+            keywords: &[
+                "открывать задачи", "на всё окно", "в панели", "широкий вид", "раскрытый вид",
+                "open tasks", "full window", "side panel", "wide view",
+            ],
+            availability: Availability::OnDemand,
+            danger: Danger::Safe,
+            params: || {
+                json!({
+                    "type": "object",
+                    "properties": {
+                        "mode": { "type": "string", "enum": ["panel", "wide"] },
+                    },
+                    "required": ["mode"]
+                })
+            },
+            handler: Handler::Ui("set_task_detail_mode"),
+        },
+        Tool {
             name: "open_task",
             summary: "Open a task's detail panel in front of the user",
             keywords: &["открой задачу", "покажи задачу", "open task", "show task", "focus task"],

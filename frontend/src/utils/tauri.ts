@@ -242,6 +242,12 @@ export interface LlmTestResult {
   projects_in_db: number;
 }
 
+/** Open a file or folder the way Finder would. */
+export const openPath = (path: string) => invoke<void>("open_path", { path });
+
+/** Show a file in Finder, selected. */
+export const revealPath = (path: string) => invoke<void>("reveal_path", { path });
+
 /** What a field holds, and therefore how it is edited. */
 export type FieldKind =
   | "text"

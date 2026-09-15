@@ -12,6 +12,7 @@ import {
 import LaunchIcon from "@mui/icons-material/Launch";
 import type { TaskField } from "@/utils/tauri";
 import { useI18n } from "@/i18n";
+import { openTarget } from "@/utils/open";
 import FieldFrame from "./FieldFrame";
 import ListFieldEditor from "./ListFieldEditor";
 import FileListEditor from "./FileListEditor";
@@ -169,15 +170,7 @@ export default function CustomFieldEditor({ field, value, expanded, onChange }: 
                 <IconButton
                   size="small"
                   sx={{ flexShrink: 0, opacity: 0.5 }}
-                  onClick={async () => {
-                    const href = /^[a-z]+:\/\//i.test(draft) ? draft : `https://${draft}`;
-                    try {
-                      const { open } = await import("@tauri-apps/plugin-shell");
-                      await open(href);
-                    } catch {
-                      window.open(href, "_blank");
-                    }
-                  }}
+                  onClick={() => void openTarget(draft)}
                 >
                   <LaunchIcon sx={{ fontSize: 14 }} />
                 </IconButton>

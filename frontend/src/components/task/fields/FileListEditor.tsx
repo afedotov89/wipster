@@ -1,8 +1,11 @@
+import { useCallback, useRef } from "react";
 import { Box, Button, IconButton, Tooltip, Typography } from "@mui/material";
 import CloseIcon from "@mui/icons-material/Close";
 import FolderOpenIcon from "@mui/icons-material/FolderOpen";
 import InsertDriveFileOutlinedIcon from "@mui/icons-material/InsertDriveFileOutlined";
 import { useI18n } from "@/i18n";
+import * as api from "@/utils/tauri";
+import { useFileDrop } from "@/hooks/useFileDrop";
 
 /** The file's own name, and the folder it sits in — shown separately. */
 function split(path: string): { name: string; folder: string } {
@@ -13,10 +16,11 @@ function split(path: string): { name: string; folder: string } {
     : { name: clean.slice(cut + 1), folder: clean.slice(0, cut) };
 }
 
-async function reveal(target: string) {
-  const { open } = await import("@tauri-apps/plugin-shell");
-  await open(target);
-}
+/** Show the file in Finder, selected — the point of the button. */
+const reveal = (target: string) => api.revealPath(target).catch(() => {});
+
+/** Open it with whatever normally opens it. */
+const openFile = (target: string) => api.openPath(target).catch(() => {});
 
 interface Props {
   paths: string[];
@@ -32,14 +36,22 @@ interface Props {
  */
 export default function FileListEditor({ paths, onChange }: Props) {
   const { t } = useI18n();
+  const dropZone = useRef<HTMLDivElement>(null);
+
+  const addPaths = useCallback(
+    (added: string[]) => onChange([...paths, ...added.filter((p) => !paths.includes(p))]),
+    [paths, onChange],
+  );
+  // Dragging a file out of Finder and onto the field is how anyone would
+  // expect to attach one.
+  const dragging = useFileDrop(dropZone, addPaths);
 
   const pick = async () => {
     try {
       const { open } = await import("@tauri-apps/plugin-dialog");
       const picked = await open({ multiple: true, title: t.chooseFiles });
       if (!picked) return;
-      const added = Array.isArray(picked) ? picked : [picked];
-      onChange([...paths, ...added.filter((p) => !paths.includes(p))]);
+      addPaths(Array.isArray(picked) ? picked : [picked]);
     } catch {
       // No picker available — the field still takes paths that are pasted in.
     }
@@ -48,7 +60,21 @@ export default function FileListEditor({ paths, onChange }: Props) {
   const removeAt = (index: number) => onChange(paths.filter((_, i) => i !== index));
 
   return (
-    <Box sx={{ display: "flex", flexDirection: "column", gap: 0.5 }}>
+    <Box
+      ref={dropZone}
+      sx={{
+        display: "flex",
+        flexDirection: "column",
+        gap: 0.5,
+        p: 0.5,
+        m: -0.5,
+        borderRadius: 1.5,
+        outline: dragging ? "2px dashed" : "2px dashed transparent",
+        outlineColor: dragging ? "primary.main" : "transparent",
+        bgcolor: dragging ? "var(--overlay-1)" : "transparent",
+        transition: "background-color 120ms ease, outline-color 120ms ease",
+      }}
+    >
       {paths.map((path, index) => {
         const { name, folder } = split(path);
         return (
@@ -69,7 +95,7 @@ export default function FileListEditor({ paths, onChange }: Props) {
             <Box sx={{ minWidth: 0, flex: 1 }}>
               <Typography
                 sx={{ fontSize: 13, cursor: "pointer", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}
-                onClick={() => reveal(path)}
+                onClick={() => openFile(path)}
                 title={path}
               >
                 {name}
@@ -85,13 +111,11 @@ export default function FileListEditor({ paths, onChange }: Props) {
               )}
             </Box>
             <Box className="row-actions" sx={{ display: "flex", opacity: 0, transition: "opacity 0.15s" }}>
-              {folder && (
-                <Tooltip title={t.showInFolder}>
-                  <IconButton size="small" onClick={() => reveal(folder)} sx={{ opacity: 0.6 }}>
-                    <FolderOpenIcon sx={{ fontSize: 14 }} />
-                  </IconButton>
-                </Tooltip>
-              )}
+              <Tooltip title={t.showInFolder}>
+                <IconButton size="small" onClick={() => reveal(path)} sx={{ opacity: 0.6 }}>
+                  <FolderOpenIcon sx={{ fontSize: 14 }} />
+                </IconButton>
+              </Tooltip>
               <Tooltip title={t.remove}>
                 <IconButton size="small" onClick={() => removeAt(index)} sx={{ opacity: 0.6 }}>
                   <CloseIcon sx={{ fontSize: 14 }} />
@@ -102,14 +126,19 @@ export default function FileListEditor({ paths, onChange }: Props) {
         );
       })}
 
-      <Button
-        size="small"
-        variant="outlined"
-        onClick={pick}
-        sx={{ alignSelf: "flex-start", fontSize: 12, px: 1.5 }}
-      >
-        {t.chooseFiles}
-      </Button>
+      <Box sx={{ display: "flex", alignItems: "center", gap: 1 }}>
+        <Button
+          size="small"
+          variant="outlined"
+          onClick={pick}
+          sx={{ fontSize: 12, px: 1.5 }}
+        >
+          {t.chooseFiles}
+        </Button>
+        <Typography variant="caption" color="text.secondary" sx={{ opacity: dragging ? 1 : 0.6 }}>
+          {t.dropFilesHint}
+        </Typography>
+      </Box>
     </Box>
   );
 }

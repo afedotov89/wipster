@@ -56,6 +56,8 @@ pub const COMMANDS: &[(&str, Coverage)] = &[
     ("test_llm_connection", Withheld("a check on the assistant's own connection, which it cannot usefully run on itself")),
     ("llm_providers", Withheld("the list of services the app can be pointed at; choosing one means pasting a key, which only the user has")),
     ("app_info", Tool("release_notes")),
+    ("open_path", Withheld("launching whatever is at a path on this machine is the user's click to make, not the assistant's")),
+    ("reveal_path", Withheld("same: showing a file in Finder follows the user's own click on the row")),
     // --- The shape of a task
     ("task_field_kinds", Withheld("the list of types a field can have; the create tool names them in its own schema")),
     ("list_task_fields", Tool("list_task_fields")),
