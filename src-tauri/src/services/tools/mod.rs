@@ -19,6 +19,7 @@ use std::sync::Mutex;
 
 pub mod app;
 pub mod coverage;
+pub mod fields;
 pub mod memory;
 pub mod projects;
 pub mod tasks;
@@ -88,6 +89,7 @@ pub fn registry() -> Vec<Tool> {
     let mut all = Vec::new();
     all.extend(tasks::tools());
     all.extend(app::tools());
+    all.extend(fields::tools());
     all.extend(projects::tools());
     all.extend(memory::tools());
     all.extend(issues::tools());

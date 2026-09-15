@@ -5,6 +5,7 @@ import PaletteOutlinedIcon from "@mui/icons-material/PaletteOutlined";
 import AutoAwesomeIcon from "@mui/icons-material/AutoAwesome";
 import HubOutlinedIcon from "@mui/icons-material/HubOutlined";
 import TerminalIcon from "@mui/icons-material/Terminal";
+import ViewListOutlinedIcon from "@mui/icons-material/ViewListOutlined";
 import InfoOutlinedIcon from "@mui/icons-material/InfoOutlined";
 import type { Translations } from "@/i18n";
 import GeneralPanel from "./GeneralPanel";
@@ -13,6 +14,7 @@ import AssistantPanel from "./AssistantPanel";
 import IntegrationsPanel from "./IntegrationsPanel";
 import LogsPanel from "./LogsPanel";
 import AboutPanel from "./AboutPanel";
+import FieldsPanel from "./FieldsPanel";
 
 export interface SettingsSection {
   id: string;
@@ -32,6 +34,7 @@ export interface SettingsSection {
 export const SETTINGS_SECTIONS = [
   { id: "general", Icon: TuneIcon, title: (t) => t.settingsGeneral, Panel: GeneralPanel },
   { id: "appearance", Icon: PaletteOutlinedIcon, title: (t) => t.settingsAppearance, Panel: AppearancePanel },
+  { id: "fields", Icon: ViewListOutlinedIcon, title: (t) => t.taskFields, Panel: FieldsPanel },
   { id: "assistant", Icon: AutoAwesomeIcon, title: (t) => t.aiConnector, Panel: AssistantPanel },
   { id: "integrations", Icon: HubOutlinedIcon, title: (t) => t.integrations, Panel: IntegrationsPanel },
   { id: "logs", Icon: TerminalIcon, title: (t) => t.settingsLogs, Panel: LogsPanel },

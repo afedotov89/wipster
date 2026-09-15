@@ -242,6 +242,63 @@ export interface LlmTestResult {
   projects_in_db: number;
 }
 
+/** What a field holds, and therefore how it is edited. */
+export type FieldKind =
+  | "text"
+  | "long_text"
+  | "number"
+  | "date"
+  | "checkbox"
+  | "select"
+  | "url"
+  | "url_list"
+  | "file_list"
+  | "text_list"
+  | "checklist";
+
+/** One field of a task, as configured. */
+export interface TaskField {
+  id: string;
+  /** The column for a built-in field, a slug for a custom one. */
+  key: string;
+  /** What the user called it; built-in fields are named by the app. */
+  label: string | null;
+  kind: FieldKind;
+  options: string[];
+  builtin: boolean;
+  enabled: boolean;
+  position: number;
+  removed_at: string | null;
+}
+
+/** Whatever a custom field holds, keyed by field id. */
+export type TaskFieldValues = Record<string, unknown>;
+
+export const listTaskFields = () => invoke<TaskField[]>("list_task_fields");
+
+export const removedTaskFields = () => invoke<TaskField[]>("removed_task_fields");
+
+export const createTaskField = (label: string, kind: FieldKind, options?: string[]) =>
+  invoke<TaskField>("create_task_field", { label, kind, options });
+
+export const updateTaskField = (
+  id: string,
+  patch: { label?: string; enabled?: boolean; options?: string[] },
+) => invoke<TaskField>("update_task_field", { id, ...patch });
+
+export const reorderTaskFields = (ids: string[]) =>
+  invoke<void>("reorder_task_fields", { ids });
+
+export const removeTaskField = (id: string) => invoke<void>("remove_task_field", { id });
+
+export const restoreTaskField = (id: string) => invoke<TaskField>("restore_task_field", { id });
+
+export const taskFieldValues = (taskId: string) =>
+  invoke<TaskFieldValues>("task_field_values", { taskId });
+
+export const setTaskFieldValue = (taskId: string, fieldId: string, value: unknown) =>
+  invoke<void>("set_task_field_value", { taskId, fieldId, value });
+
 /** One released version, as written in CHANGELOG.md. */
 export interface Release {
   version: string;

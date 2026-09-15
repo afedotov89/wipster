@@ -4,7 +4,18 @@ import ru from "./ru";
 
 export type Locale = "en" | "ru";
 
-export type Translations = { [K in keyof typeof en]: (typeof en)[K] extends (...args: infer A) => string ? (...args: A) => string : string };
+/**
+ * Every string the app says, in whatever shape it was written: a plain string,
+ * a function that builds one, or — where a set of names belongs together, like
+ * the types a field can have — a small map of them.
+ */
+export type Translations = {
+  [K in keyof typeof en]: (typeof en)[K] extends (...args: infer A) => string
+    ? (...args: A) => string
+    : (typeof en)[K] extends string
+      ? string
+      : (typeof en)[K];
+};
 
 const locales: Record<Locale, Translations> = { en, ru } as Record<Locale, Translations>;
 

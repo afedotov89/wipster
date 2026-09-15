@@ -56,6 +56,17 @@ pub const COMMANDS: &[(&str, Coverage)] = &[
     ("test_llm_connection", Withheld("a check on the assistant's own connection, which it cannot usefully run on itself")),
     ("llm_providers", Withheld("the list of services the app can be pointed at; choosing one means pasting a key, which only the user has")),
     ("app_info", Tool("release_notes")),
+    // --- The shape of a task
+    ("task_field_kinds", Withheld("the list of types a field can have; the create tool names them in its own schema")),
+    ("list_task_fields", Tool("list_task_fields")),
+    ("removed_task_fields", Tool("list_task_fields")),
+    ("create_task_field", Tool("create_task_field")),
+    ("update_task_field", Tool("update_task_field")),
+    ("reorder_task_fields", Withheld("dragging fields into an order is a mouse gesture; the assistant changes which fields exist, not their pixel order")),
+    ("remove_task_field", Tool("remove_task_field")),
+    ("restore_task_field", Tool("update_task_field")),
+    ("task_field_values", Tool("get_task")),
+    ("set_task_field_value", Tool("set_task_field")),
     ("get_backend_logs", Withheld("diagnostics for the log view")),
     // --- The assistant itself
     ("agent_chat", Withheld("this is the assistant's own entry point")),

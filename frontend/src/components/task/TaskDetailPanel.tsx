@@ -1,4 +1,4 @@
-import { useEffect, useState, useCallback, useRef } from "react";
+import { Fragment, useEffect, useState, useCallback, useRef } from "react";
 import {
   DndContext,
   closestCenter,
@@ -39,6 +39,10 @@ import { statusLabel, priorityLabel, PRIORITIES } from "@/utils/constants";
 import { useI18n } from "@/i18n";
 import { useAiAutocomplete } from "@/hooks/useAiAutocomplete";
 import { getPromisedToOptions, getEstimateOptions } from "@/utils/tauri";
+import * as api from "@/utils/tauri";
+import { appLog } from "@/stores/logStore";
+import { useTaskFieldStore } from "@/stores/taskFieldStore";
+import CustomFieldEditor from "@/components/task/fields/CustomFieldEditor";
 import { useAiFillStore } from "@/stores/aiFillStore";
 import type { TaskStatus } from "@/utils/tauri";
 
@@ -248,6 +252,12 @@ function ChecklistSortable({ items, onReorder, onToggle, onRemove, onEditText }:
 }
 
 export default function TaskDetailPanel() {
+  const fields = useTaskFieldStore((s) => s.fields);
+  const loadFields = useTaskFieldStore((s) => s.load);
+  const fieldsLoaded = useTaskFieldStore((s) => s.loaded);
+  // What this task holds in fields the user added, keyed by field id.
+  const [customValues, setCustomValues] = useState<Record<string, unknown>>({});
+
   const { selectedTaskId, closeDetail } = useUiStore();
   const { update, findTask } = useTaskStore();
   const { projects } = useProjectStore();
@@ -316,6 +326,28 @@ export default function TaskDetailPanel() {
     getEstimateOptions().then(setEstimateOptions).catch(() => {});
   }, []);
 
+  // The list of fields is the same for every task, so it is fetched once.
+  useEffect(() => {
+    if (!fieldsLoaded) void loadFields().catch(() => {});
+  }, [fieldsLoaded, loadFields]);
+
+  // What this task holds in them is not: it comes with the task.
+  useEffect(() => {
+    if (!selectedTaskId) return;
+    let cancelled = false;
+    api
+      .taskFieldValues(selectedTaskId)
+      .then((values) => {
+        if (!cancelled) setCustomValues(values);
+      })
+      .catch(() => {
+        if (!cancelled) setCustomValues({});
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [selectedTaskId]);
+
   const save = useCallback(
     async (field: string, value: string | null) => {
       if (!selectedTaskId) return;
@@ -357,6 +389,352 @@ export default function TaskDetailPanel() {
       </Box>
     );
   }
+
+  /**
+   * A built-in field, drawn by its own editor.
+   *
+   * The registry decides whether a field appears and where; it does not decide
+   * how it looks. Priority is still a row of buttons, the due date is still
+   * chips, the checklist is still the checklist — nothing turned into a generic
+   * text box for the sake of being configurable.
+   */
+  const builtinField = (key: string) => {
+    switch (key) {
+      case "project_id":
+        return (
+          <FormControl size="small" fullWidth>
+          <InputLabel sx={{ fontSize: 13 }}>{t.project}</InputLabel>
+          <Select
+            value={task.project_id ?? ""}
+            label={t.project}
+            onChange={(e) => save("project_id", e.target.value)}
+            sx={{ fontSize: 13 }}
+          >
+            <MenuItem value="">
+              <em>{t.none}</em>
+            </MenuItem>
+            {projects.map((p) => (
+              <MenuItem key={p.id} value={p.id} sx={{ fontSize: 13 }}>
+                {p.name}
+              </MenuItem>
+            ))}
+          </Select>
+        </FormControl>
+        );
+      case "priority":
+        return (
+          <Box>
+          <Typography variant="caption" color="text.secondary">
+            {t.priority}
+          </Typography>
+          <ToggleButtonGroup
+            exclusive
+            size="small"
+            value={task.priority}
+            onChange={(_e, val) => save("priority", val)}
+            sx={{ display: "flex", mt: 0.5 }}
+          >
+            {PRIORITIES.map((p) => (
+              <ToggleButton key={p} value={p} sx={{ flex: 1, fontSize: 11, py: 0.5 }}>
+                {priorityLabel(t, p)}
+              </ToggleButton>
+            ))}
+          </ToggleButtonGroup>
+        </Box>
+        );
+      case "energy":
+        return (
+          <Box>
+          <Typography variant="caption" color="text.secondary">
+            {t.energy}
+          </Typography>
+          <Box sx={{ display: "flex", alignItems: "center", gap: 0.75, mt: 0.5 }}>
+            <Typography sx={{ fontSize: 14, lineHeight: 1 }}>😴</Typography>
+            <Box sx={{ display: "flex", flex: 1, height: 24, borderRadius: 1, overflow: "hidden", cursor: "pointer" }}>
+              {(["low", "medium", "high"] as const).map((level, i) => {
+                const colors = ["#5b7fa6", "#6da87a", "#d4a843"];
+                const selected = task.energy === level;
+                return (
+                  <Box
+                    key={level}
+                    onClick={() => save("energy", task.energy === level ? null : level)}
+                    sx={{
+                      flex: 1,
+                      bgcolor: colors[i],
+                      opacity: selected ? 1 : task.energy ? 0.2 : 0.4,
+                      transition: "opacity 0.15s",
+                      "&:hover": { opacity: selected ? 1 : 0.6 },
+                    }}
+                  />
+                );
+              })}
+            </Box>
+            <Typography sx={{ fontSize: 14, lineHeight: 1 }}>⚡</Typography>
+          </Box>
+        </Box>
+        );
+      case "time_estimate":
+        return (
+          <Autocomplete
+          freeSolo
+          size="small"
+          options={[...new Set(["30м", "1ч", "2ч", "4ч", "1д", "2д", "3д", "1н", "2н", ...estimateOptions])]}
+          value={timeEstimate}
+          onInputChange={(_e, val) => setTimeEstimate(val)}
+          onBlur={() => {
+            const val = timeEstimate.trim();
+            if (val !== (task.time_estimate ?? "")) {
+              save("time_estimate", val);
+              if (val && !estimateOptions.includes(val)) {
+                setEstimateOptions((prev) => [...new Set([...prev, val])]);
+              }
+            }
+          }}
+          renderInput={(params) => (
+            <TextField
+              {...params}
+              label={t.estimate}
+              sx={{ "& .MuiInputBase-input": { fontSize: 13 } }}
+            />
+          )}
+        />
+        );
+      case "due":
+        return (
+          <Box>
+          <Typography variant="caption" color="text.secondary" sx={{ mb: 0.5, display: "block" }}>
+            {t.dueDate}
+          </Typography>
+          <Box sx={{ display: "flex", gap: 0.5, flexWrap: "wrap", alignItems: "center" }}>
+            {[
+              { label: locale === "ru" ? "Сегодня" : "Today", days: 0 },
+              { label: locale === "ru" ? "Завтра" : "Tomorrow", days: 1 },
+              { label: locale === "ru" ? "+3д" : "+3d", days: 3 },
+              { label: locale === "ru" ? "+1н" : "+1w", days: 7 },
+            ].map(({ label, days }) => {
+              const d = new Date();
+              d.setDate(d.getDate() + days);
+              const val = d.toISOString().slice(0, 10);
+              return (
+                <Typography
+                  key={days}
+                  onClick={() => { setDue(val); save("due", val); }}
+                  sx={{
+                    fontSize: 11, px: 1, py: 0.4, borderRadius: 1, cursor: "pointer",
+                    bgcolor: due === val ? "primary.main" : "var(--overlay-2)",
+                    color: due === val ? "white" : "text.secondary",
+                    "&:hover": { bgcolor: due === val ? "primary.main" : "var(--overlay-3)" },
+                  }}
+                >
+                  {label}
+                </Typography>
+              );
+            })}
+            <Box component="label" sx={{
+              fontSize: 11, px: 1, py: 0.4, borderRadius: 1, cursor: "pointer",
+              bgcolor: due && ![0,1,3,7].some(days => { const d = new Date(); d.setDate(d.getDate() + days); return d.toISOString().slice(0,10) === due; }) ? "primary.main" : "var(--overlay-2)",
+              color: due && ![0,1,3,7].some(days => { const d = new Date(); d.setDate(d.getDate() + days); return d.toISOString().slice(0,10) === due; }) ? "white" : "text.secondary",
+              "&:hover": { bgcolor: "var(--overlay-3)" },
+              position: "relative",
+            }}>
+              {due && ![0,1,3,7].some(days => { const d = new Date(); d.setDate(d.getDate() + days); return d.toISOString().slice(0,10) === due; }) ? due : "📅"}
+              <input
+                type="date"
+                value={due}
+                onChange={(e) => { setDue(e.target.value); save("due", e.target.value); }}
+                style={{ position: "absolute", opacity: 0, width: 0, height: 0, overflow: "hidden" }}
+              />
+            </Box>
+            {due && (
+              <Typography
+                onClick={() => { setDue(""); save("due", ""); }}
+                sx={{ fontSize: 11, px: 0.5, cursor: "pointer", color: "text.secondary", opacity: 0.4, "&:hover": { opacity: 1 } }}
+              >
+                ✕
+              </Typography>
+            )}
+          </Box>
+        </Box>
+        );
+      case "promised_to":
+        return (
+          <Autocomplete
+          freeSolo
+          size="small"
+          options={promisedToOptions}
+          value={promisedTo}
+          onInputChange={(_e, val) => setPromisedTo(val)}
+          onBlur={() => {
+            const val = promisedTo.trim();
+            if (val !== (task.promised_to ?? "")) {
+              save("promised_to", val || null);
+              if (val && !promisedToOptions.includes(val)) {
+                setPromisedToOptions((prev) => [val, ...prev]);
+              }
+            }
+          }}
+          renderInput={(params) => (
+            <TextField
+              {...params}
+              label={t.promisedTo}
+              sx={{ "& .MuiInputBase-input": { fontSize: 13 } }}
+            />
+          )}
+        />
+        );
+      case "dod":
+        return (
+          <AiTextField
+          label={t.definitionOfDone}
+          fieldName="dod"
+          value={dod}
+          onChange={setDod}
+          onBlur={() => save("dod", dod)}
+          multiline
+          rows={2}
+          suggestion={suggestion}
+          loading={aiLoading}
+          activeField={activeField}
+          onKeyDown={aiKeyDown}
+          onChangeAi={aiChange}
+        />
+        );
+      case "checklist":
+        return (
+          <Box>
+          <Typography variant="caption" color="text.secondary">
+            {t.steps}
+            {checklist.length > 0 && (
+              <Typography component="span" variant="caption" color="text.secondary">
+                {" "}({checklist.filter((i) => i.done).length}/{checklist.length})
+              </Typography>
+            )}
+          </Typography>
+          {checklist.length > 0 && (
+            <ChecklistSortable
+              items={checklist}
+              onReorder={(items) => saveChecklist(items)}
+              onToggle={toggleStep}
+              onRemove={removeStep}
+              onEditText={(index, text) => {
+                const updated = checklist.map((item, i) => i === index ? { ...item, text } : item);
+                saveChecklist(updated);
+              }}
+            />
+          )}
+          <Box sx={{ mt: 1, position: "relative" }}>
+            <TextField
+              fullWidth
+              size="small"
+              label={checklist.length === 0 ? t.firstStep : undefined}
+              placeholder={checklist.length > 0 ? t.addStep : undefined}
+              value={newStep}
+              onChange={(e) => {
+                setNewStep(e.target.value);
+                aiChange("next_step", e.target.value);
+              }}
+              onKeyDown={(e) => {
+                if (e.key === "Enter") { e.preventDefault(); addStep(); return; }
+                aiKeyDown(e, "next_step", newStep, setNewStep);
+              }}
+              sx={{ "& .MuiInputBase-input": { fontSize: 13 } }}
+            />
+            {aiLoading && activeField === "next_step" && (
+              <CircularProgress size={14} sx={{ position: "absolute", right: 12, top: 12 }} />
+            )}
+          </Box>
+          {activeField === "next_step" && suggestion && (
+            <Box
+              sx={{
+                mt: 0.5,
+                p: 1,
+                bgcolor: "rgba(46,125,111,0.1)",
+                border: "1px solid rgba(46,125,111,0.3)",
+                borderRadius: 1,
+                fontSize: 12,
+                color: "text.secondary",
+                cursor: "pointer",
+              }}
+              onClick={() => setNewStep(suggestion)}
+            >
+              <Typography variant="caption" sx={{ opacity: 0.6, display: "block", mb: 0.25 }}>
+                Tab ↹
+              </Typography>
+              {suggestion}
+            </Box>
+          )}
+        </Box>
+        );
+      case "tracker_url":
+        return (
+          <Box sx={{ display: "flex", gap: 0.5, alignItems: "center" }}>
+          <TextField
+            fullWidth
+            size="small"
+            label={t.trackerUrl}
+            placeholder={t.issueUrlPlaceholder}
+            value={trackerUrl}
+            onChange={(e) => setTrackerUrl(e.target.value)}
+            onBlur={() => save("tracker_url", trackerUrl || null)}
+            sx={{ "& .MuiInputBase-input": { fontSize: 13 } }}
+            InputLabelProps={{ sx: { fontSize: 13 } }}
+          />
+          {trackerUrl && (
+            <IconButton size="small" onClick={async () => {
+              const url = trackerUrl.startsWith("http") ? trackerUrl : `https://${trackerUrl}`;
+              try {
+                const { open } = await import("@tauri-apps/plugin-shell");
+                await open(url);
+              } catch {
+                window.open(url, "_blank");
+              }
+            }} sx={{ flexShrink: 0, opacity: 0.5 }}>
+              <span style={{ fontSize: 14 }}>↗</span>
+            </IconButton>
+          )}
+        </Box>
+        );
+      case "comment":
+        return (
+          <TextField
+          fullWidth
+          size="small"
+          label={t.comment}
+          multiline
+          minRows={3}
+          maxRows={20}
+          value={comment}
+          onChange={(e) => setComment(e.target.value)}
+          onBlur={() => save("comment", comment || null)}
+          sx={{ "& .MuiInputBase-input": { fontSize: 13 } }}
+          InputLabelProps={{ sx: { fontSize: 13 } }}
+        />
+        );
+      default:
+        return null;
+    }
+  };
+
+  const orderedFields = fields.filter((field) => field.enabled);
+
+  /**
+   * A value the user typed into a field of their own.
+   *
+   * Written through at once and kept on screen optimistically: these are
+   * ordinary edits, and waiting for a round trip to see your own text is how an
+   * app feels slow.
+   */
+  const saveCustomValue = async (fieldId: string, value: unknown) => {
+    if (!task) return;
+    setCustomValues((current) => ({ ...current, [fieldId]: value }));
+    try {
+      await api.setTaskFieldValue(task.id, fieldId, value ?? null);
+    } catch (e) {
+      appLog.error(`[task-fields] ${String(e)}`);
+      // Put back whatever the database actually has.
+      await api.taskFieldValues(task.id).then(setCustomValues).catch(() => {});
+    }
+  };
 
   return (
     <Box sx={{ p: 2, display: "flex", flexDirection: "column", gap: 2 }}>
@@ -431,299 +809,19 @@ export default function TaskDetailPanel() {
           InputProps={{ sx: { fontSize: 16, fontWeight: 600 } }}
         />
 
-        <FormControl size="small" fullWidth>
-          <InputLabel sx={{ fontSize: 13 }}>{t.project}</InputLabel>
-          <Select
-            value={task.project_id ?? ""}
-            label={t.project}
-            onChange={(e) => save("project_id", e.target.value)}
-            sx={{ fontSize: 13 }}
-          >
-            <MenuItem value="">
-              <em>{t.none}</em>
-            </MenuItem>
-            {projects.map((p) => (
-              <MenuItem key={p.id} value={p.id} sx={{ fontSize: 13 }}>
-                {p.name}
-              </MenuItem>
-            ))}
-          </Select>
-        </FormControl>
-
-        <Box>
-          <Typography variant="caption" color="text.secondary">
-            {t.priority}
-          </Typography>
-          <ToggleButtonGroup
-            exclusive
-            size="small"
-            value={task.priority}
-            onChange={(_e, val) => save("priority", val)}
-            sx={{ display: "flex", mt: 0.5 }}
-          >
-            {PRIORITIES.map((p) => (
-              <ToggleButton key={p} value={p} sx={{ flex: 1, fontSize: 11, py: 0.5 }}>
-                {priorityLabel(t, p)}
-              </ToggleButton>
-            ))}
-          </ToggleButtonGroup>
-        </Box>
-
-        <Box>
-          <Typography variant="caption" color="text.secondary">
-            {t.energy}
-          </Typography>
-          <Box sx={{ display: "flex", alignItems: "center", gap: 0.75, mt: 0.5 }}>
-            <Typography sx={{ fontSize: 14, lineHeight: 1 }}>😴</Typography>
-            <Box sx={{ display: "flex", flex: 1, height: 24, borderRadius: 1, overflow: "hidden", cursor: "pointer" }}>
-              {(["low", "medium", "high"] as const).map((level, i) => {
-                const colors = ["#5b7fa6", "#6da87a", "#d4a843"];
-                const selected = task.energy === level;
-                return (
-                  <Box
-                    key={level}
-                    onClick={() => save("energy", task.energy === level ? null : level)}
-                    sx={{
-                      flex: 1,
-                      bgcolor: colors[i],
-                      opacity: selected ? 1 : task.energy ? 0.2 : 0.4,
-                      transition: "opacity 0.15s",
-                      "&:hover": { opacity: selected ? 1 : 0.6 },
-                    }}
-                  />
-                );
-              })}
-            </Box>
-            <Typography sx={{ fontSize: 14, lineHeight: 1 }}>⚡</Typography>
-          </Box>
-        </Box>
-
-        <Autocomplete
-          freeSolo
-          size="small"
-          options={[...new Set(["30м", "1ч", "2ч", "4ч", "1д", "2д", "3д", "1н", "2н", ...estimateOptions])]}
-          value={timeEstimate}
-          onInputChange={(_e, val) => setTimeEstimate(val)}
-          onBlur={() => {
-            const val = timeEstimate.trim();
-            if (val !== (task.time_estimate ?? "")) {
-              save("time_estimate", val);
-              if (val && !estimateOptions.includes(val)) {
-                setEstimateOptions((prev) => [...new Set([...prev, val])]);
-              }
-            }
-          }}
-          renderInput={(params) => (
-            <TextField
-              {...params}
-              label={t.estimate}
-              sx={{ "& .MuiInputBase-input": { fontSize: 13 } }}
-            />
-          )}
-        />
-
-        <Box>
-          <Typography variant="caption" color="text.secondary" sx={{ mb: 0.5, display: "block" }}>
-            {t.dueDate}
-          </Typography>
-          <Box sx={{ display: "flex", gap: 0.5, flexWrap: "wrap", alignItems: "center" }}>
-            {[
-              { label: locale === "ru" ? "Сегодня" : "Today", days: 0 },
-              { label: locale === "ru" ? "Завтра" : "Tomorrow", days: 1 },
-              { label: locale === "ru" ? "+3д" : "+3d", days: 3 },
-              { label: locale === "ru" ? "+1н" : "+1w", days: 7 },
-            ].map(({ label, days }) => {
-              const d = new Date();
-              d.setDate(d.getDate() + days);
-              const val = d.toISOString().slice(0, 10);
-              return (
-                <Typography
-                  key={days}
-                  onClick={() => { setDue(val); save("due", val); }}
-                  sx={{
-                    fontSize: 11, px: 1, py: 0.4, borderRadius: 1, cursor: "pointer",
-                    bgcolor: due === val ? "primary.main" : "var(--overlay-2)",
-                    color: due === val ? "white" : "text.secondary",
-                    "&:hover": { bgcolor: due === val ? "primary.main" : "var(--overlay-3)" },
-                  }}
-                >
-                  {label}
-                </Typography>
-              );
-            })}
-            <Box component="label" sx={{
-              fontSize: 11, px: 1, py: 0.4, borderRadius: 1, cursor: "pointer",
-              bgcolor: due && ![0,1,3,7].some(days => { const d = new Date(); d.setDate(d.getDate() + days); return d.toISOString().slice(0,10) === due; }) ? "primary.main" : "var(--overlay-2)",
-              color: due && ![0,1,3,7].some(days => { const d = new Date(); d.setDate(d.getDate() + days); return d.toISOString().slice(0,10) === due; }) ? "white" : "text.secondary",
-              "&:hover": { bgcolor: "var(--overlay-3)" },
-              position: "relative",
-            }}>
-              {due && ![0,1,3,7].some(days => { const d = new Date(); d.setDate(d.getDate() + days); return d.toISOString().slice(0,10) === due; }) ? due : "📅"}
-              <input
-                type="date"
-                value={due}
-                onChange={(e) => { setDue(e.target.value); save("due", e.target.value); }}
-                style={{ position: "absolute", opacity: 0, width: 0, height: 0, overflow: "hidden" }}
+        {orderedFields.map((field) => (
+          <Fragment key={field.id}>
+            {field.builtin ? (
+              builtinField(field.key)
+            ) : (
+              <CustomFieldEditor
+                field={field}
+                value={customValues[field.id]}
+                onChange={(value) => saveCustomValue(field.id, value)}
               />
-            </Box>
-            {due && (
-              <Typography
-                onClick={() => { setDue(""); save("due", ""); }}
-                sx={{ fontSize: 11, px: 0.5, cursor: "pointer", color: "text.secondary", opacity: 0.4, "&:hover": { opacity: 1 } }}
-              >
-                ✕
-              </Typography>
             )}
-          </Box>
-        </Box>
-
-        <Autocomplete
-          freeSolo
-          size="small"
-          options={promisedToOptions}
-          value={promisedTo}
-          onInputChange={(_e, val) => setPromisedTo(val)}
-          onBlur={() => {
-            const val = promisedTo.trim();
-            if (val !== (task.promised_to ?? "")) {
-              save("promised_to", val || null);
-              if (val && !promisedToOptions.includes(val)) {
-                setPromisedToOptions((prev) => [val, ...prev]);
-              }
-            }
-          }}
-          renderInput={(params) => (
-            <TextField
-              {...params}
-              label={t.promisedTo}
-              sx={{ "& .MuiInputBase-input": { fontSize: 13 } }}
-            />
-          )}
-        />
-
-        <Divider />
-
-        <AiTextField
-          label={t.definitionOfDone}
-          fieldName="dod"
-          value={dod}
-          onChange={setDod}
-          onBlur={() => save("dod", dod)}
-          multiline
-          rows={2}
-          suggestion={suggestion}
-          loading={aiLoading}
-          activeField={activeField}
-          onKeyDown={aiKeyDown}
-          onChangeAi={aiChange}
-        />
-
-        <Box>
-          <Typography variant="caption" color="text.secondary">
-            {t.steps}
-            {checklist.length > 0 && (
-              <Typography component="span" variant="caption" color="text.secondary">
-                {" "}({checklist.filter((i) => i.done).length}/{checklist.length})
-              </Typography>
-            )}
-          </Typography>
-          {checklist.length > 0 && (
-            <ChecklistSortable
-              items={checklist}
-              onReorder={(items) => saveChecklist(items)}
-              onToggle={toggleStep}
-              onRemove={removeStep}
-              onEditText={(index, text) => {
-                const updated = checklist.map((item, i) => i === index ? { ...item, text } : item);
-                saveChecklist(updated);
-              }}
-            />
-          )}
-          <Box sx={{ mt: 1, position: "relative" }}>
-            <TextField
-              fullWidth
-              size="small"
-              label={checklist.length === 0 ? t.firstStep : undefined}
-              placeholder={checklist.length > 0 ? t.addStep : undefined}
-              value={newStep}
-              onChange={(e) => {
-                setNewStep(e.target.value);
-                aiChange("next_step", e.target.value);
-              }}
-              onKeyDown={(e) => {
-                if (e.key === "Enter") { e.preventDefault(); addStep(); return; }
-                aiKeyDown(e, "next_step", newStep, setNewStep);
-              }}
-              sx={{ "& .MuiInputBase-input": { fontSize: 13 } }}
-            />
-            {aiLoading && activeField === "next_step" && (
-              <CircularProgress size={14} sx={{ position: "absolute", right: 12, top: 12 }} />
-            )}
-          </Box>
-          {activeField === "next_step" && suggestion && (
-            <Box
-              sx={{
-                mt: 0.5,
-                p: 1,
-                bgcolor: "rgba(46,125,111,0.1)",
-                border: "1px solid rgba(46,125,111,0.3)",
-                borderRadius: 1,
-                fontSize: 12,
-                color: "text.secondary",
-                cursor: "pointer",
-              }}
-              onClick={() => setNewStep(suggestion)}
-            >
-              <Typography variant="caption" sx={{ opacity: 0.6, display: "block", mb: 0.25 }}>
-                Tab ↹
-              </Typography>
-              {suggestion}
-            </Box>
-          )}
-        </Box>
-
-        <Divider />
-
-        <Box sx={{ display: "flex", gap: 0.5, alignItems: "center" }}>
-          <TextField
-            fullWidth
-            size="small"
-            label={t.trackerUrl}
-            placeholder={t.issueUrlPlaceholder}
-            value={trackerUrl}
-            onChange={(e) => setTrackerUrl(e.target.value)}
-            onBlur={() => save("tracker_url", trackerUrl || null)}
-            sx={{ "& .MuiInputBase-input": { fontSize: 13 } }}
-            InputLabelProps={{ sx: { fontSize: 13 } }}
-          />
-          {trackerUrl && (
-            <IconButton size="small" onClick={async () => {
-              const url = trackerUrl.startsWith("http") ? trackerUrl : `https://${trackerUrl}`;
-              try {
-                const { open } = await import("@tauri-apps/plugin-shell");
-                await open(url);
-              } catch {
-                window.open(url, "_blank");
-              }
-            }} sx={{ flexShrink: 0, opacity: 0.5 }}>
-              <span style={{ fontSize: 14 }}>↗</span>
-            </IconButton>
-          )}
-        </Box>
-
-        <TextField
-          fullWidth
-          size="small"
-          label={t.comment}
-          multiline
-          minRows={3}
-          maxRows={20}
-          value={comment}
-          onChange={(e) => setComment(e.target.value)}
-          onBlur={() => save("comment", comment || null)}
-          sx={{ "& .MuiInputBase-input": { fontSize: 13 } }}
-          InputLabelProps={{ sx: { fontSize: 13 } }}
-        />
+          </Fragment>
+        ))}
 
         {task.return_ref && (() => {
           try {

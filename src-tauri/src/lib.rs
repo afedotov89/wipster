@@ -13,6 +13,7 @@ pub fn run() {
 
     tauri::Builder::default()
         .plugin(tauri_plugin_shell::init())
+        .plugin(tauri_plugin_dialog::init())
         .plugin(tauri_plugin_global_shortcut::Builder::new().build())
         .plugin(tauri_plugin_updater::Builder::new().build())
         .plugin(tauri_plugin_process::init())
@@ -64,6 +65,16 @@ pub fn run() {
             commands::agent_commands::test_llm_connection,
             commands::agent_commands::llm_providers,
             commands::app_commands::app_info,
+            commands::task_field_commands::task_field_kinds,
+            commands::task_field_commands::list_task_fields,
+            commands::task_field_commands::removed_task_fields,
+            commands::task_field_commands::create_task_field,
+            commands::task_field_commands::update_task_field,
+            commands::task_field_commands::reorder_task_fields,
+            commands::task_field_commands::remove_task_field,
+            commands::task_field_commands::restore_task_field,
+            commands::task_field_commands::task_field_values,
+            commands::task_field_commands::set_task_field_value,
             commands::autocomplete_commands::ai_autocomplete,
             commands::ai_fill_commands::ai_fill_task,
             commands::chat_commands::create_chat_session,
