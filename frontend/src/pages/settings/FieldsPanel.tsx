@@ -21,9 +21,12 @@ import DragIndicatorIcon from "@mui/icons-material/DragIndicator";
 import DeleteOutlineIcon from "@mui/icons-material/DeleteOutline";
 import AddIcon from "@mui/icons-material/Add";
 import UndoIcon from "@mui/icons-material/Undo";
+import VerticalSplitOutlinedIcon from "@mui/icons-material/VerticalSplitOutlined";
+import NotesOutlinedIcon from "@mui/icons-material/NotesOutlined";
 import { useI18n } from "@/i18n";
 import { useTaskFieldStore } from "@/stores/taskFieldStore";
 import { fieldLabel, kindLabel } from "@/utils/taskFields";
+import { columnOf } from "@/utils/fieldColumns";
 import type { FieldKind, TaskField } from "@/utils/tauri";
 import SettingsGroup from "./SettingsGroup";
 
@@ -31,6 +34,7 @@ import SettingsGroup from "./SettingsGroup";
 const KINDS: FieldKind[] = [
   "text",
   "long_text",
+  "markdown",
   "number",
   "date",
   "checkbox",
@@ -49,6 +53,7 @@ function FieldRow({ field, onRemove }: { field: TaskField; onRemove: (field: Tas
   const { attributes, listeners, setNodeRef, transform, transition, isDragging } = useSortable({
     id: field.id,
   });
+  const column = columnOf(field);
 
   return (
     <Box
@@ -98,6 +103,22 @@ function FieldRow({ field, onRemove }: { field: TaskField; onRemove: (field: Tas
           sx={{ flex: 1 }}
         />
       )}
+
+      {/* Which column it sits in when a task fills the window. The type decides
+          until the user decides otherwise, and this is where they do. */}
+      <Tooltip title={column === "side" ? t.moveFieldToMain : t.moveFieldToSide}>
+        <IconButton
+          size="small"
+          onClick={() => update(field.id, { columnSide: column === "side" ? "main" : "side" })}
+          sx={{ opacity: 0.55, "&:hover": { opacity: 1 } }}
+        >
+          {column === "side" ? (
+            <VerticalSplitOutlinedIcon sx={{ fontSize: 15 }} />
+          ) : (
+            <NotesOutlinedIcon sx={{ fontSize: 15 }} />
+          )}
+        </IconButton>
+      </Tooltip>
 
       <Chip
         label={kindLabel(field.kind, t)}
@@ -239,6 +260,9 @@ export default function FieldsPanel() {
     <Box sx={{ display: "flex", flexDirection: "column", gap: 2, maxWidth: 620 }}>
       <Typography variant="body2" color="text.secondary">
         {t.taskFieldsHint}
+      </Typography>
+      <Typography variant="body2" color="text.secondary">
+        {t.taskFieldsColumnHint}
       </Typography>
 
       <SettingsGroup>

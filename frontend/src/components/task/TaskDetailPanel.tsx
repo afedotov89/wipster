@@ -47,6 +47,7 @@ import { useTaskFieldStore } from "@/stores/taskFieldStore";
 import CustomFieldEditor from "@/components/task/fields/CustomFieldEditor";
 import { useAiFillStore } from "@/stores/aiFillStore";
 import { openTarget } from "@/utils/open";
+import { columnOf } from "@/utils/fieldColumns";
 import type { TaskStatus } from "@/utils/tauri";
 
 interface ChecklistItem {
@@ -61,7 +62,9 @@ interface AiFieldProps {
   onChange: (v: string) => void;
   onBlur: () => void;
   multiline?: boolean;
-  rows?: number;
+  /** Grows with what is written rather than reserving the room up front. */
+  minRows?: number;
+  maxRows?: number;
   suggestion: string | null;
   loading: boolean;
   activeField: string | null;
@@ -69,7 +72,7 @@ interface AiFieldProps {
   onChangeAi: (fieldName: string, value: string) => void;
 }
 
-function AiTextField({ label, fieldName, value, onChange, onBlur, multiline, rows, suggestion, loading, activeField, onKeyDown, onChangeAi }: AiFieldProps) {
+function AiTextField({ label, fieldName, value, onChange, onBlur, multiline, minRows, maxRows, suggestion, loading, activeField, onKeyDown, onChangeAi }: AiFieldProps) {
   const showSuggestion = activeField === fieldName && suggestion;
 
   return (
@@ -79,7 +82,8 @@ function AiTextField({ label, fieldName, value, onChange, onBlur, multiline, row
         size="small"
         label={label}
         multiline={multiline}
-        rows={rows}
+        minRows={minRows}
+        maxRows={maxRows}
         value={value}
         onChange={(e) => {
           onChange(e.target.value);
@@ -263,14 +267,15 @@ export default function TaskDetailPanel() {
 
   const { selectedTaskId, closeDetail } = useUiStore();
   const expanded = useUiStore((s) => s.detailExpanded);
-  // The two columns wait for the room to exist.
+  // The two columns wait for the room — but only when the room is on its way.
   //
-  // Switching the layout the moment the button is pressed put a 320px column
-  // and a gap into a 380px panel and squeezed the rest to nothing for the third
-  // of a second the panel was still growing. The content reflows when the
-  // growth is done; collapsing goes back to one column at once, before the
-  // shrink, for the same reason.
-  const [wideLayout, setWideLayout] = useState(false);
+  // Growing from the strip takes a third of a second, and switching the layout
+  // at the press of the button would squeeze a 320px column and a gap into a
+  // 380px panel for all of it. A task that *opens* wide has the room from the
+  // first paint: waiting there would show one full-width column and then
+  // rearrange it, which is a flicker, not a transition.
+  const [wideLayout, setWideLayout] = useState(expanded);
+  const wasExpanded = useRef(expanded);
   const toggleExpanded = useUiStore((s) => s.toggleDetailExpanded);
   const setExpanded = useUiStore((s) => s.setDetailExpanded);
   const { update, findTask } = useTaskStore();
@@ -342,9 +347,16 @@ export default function TaskDetailPanel() {
 
   useEffect(() => {
     if (!expanded) {
+      wasExpanded.current = false;
       setWideLayout(false);
       return;
     }
+    if (wasExpanded.current) {
+      setWideLayout(true);
+      return;
+    }
+    // It grew from the strip: let the growth finish before reflowing.
+    wasExpanded.current = true;
     const settled = setTimeout(() => setWideLayout(true), 340);
     return () => clearTimeout(settled);
   }, [expanded]);
@@ -630,7 +642,8 @@ export default function TaskDetailPanel() {
           onChange={setDod}
           onBlur={() => save("dod", dod)}
           multiline
-          rows={expanded ? 5 : 2}
+          minRows={expanded ? 4 : 2}
+          maxRows={expanded ? 24 : 12}
           suggestion={suggestion}
           loading={aiLoading}
           activeField={activeField}
@@ -736,7 +749,7 @@ export default function TaskDetailPanel() {
           size="small"
           label={t.comment}
           multiline
-          minRows={expanded ? 8 : 3}
+          minRows={expanded ? 4 : 3}
           maxRows={expanded ? 30 : 20}
           value={comment}
           onChange={(e) => setComment(e.target.value)}
@@ -752,17 +765,10 @@ export default function TaskDetailPanel() {
 
   const orderedFields = fields.filter((field) => field.enabled);
 
-  /**
-   * Which side of the expanded view a field belongs on.
-   *
-   * What a task *is* — its project, priority, dates, estimates — is a column of
-   * short answers. What it *carries* — the criterion, the steps, texts, links,
-   * files — wants width and is what the expanded view exists for. The rule is
-   * the field's type, so a custom field lands on the right side by itself.
-   */
-  const COMPACT_KINDS = ["select", "date", "text", "number", "checkbox"];
-  const properties = orderedFields.filter((field) => COMPACT_KINDS.includes(field.kind));
-  const materials = orderedFields.filter((field) => !COMPACT_KINDS.includes(field.kind));
+  // Where each field goes when the task fills the window. The rule lives in
+  // `columnOf`, and every field can overrule it from the settings.
+  const mainColumn = orderedFields.filter((field) => columnOf(field) === "main");
+  const sideColumn = orderedFields.filter((field) => columnOf(field) === "side");
 
   const renderField = (field: (typeof orderedFields)[number]) => (
     <Fragment key={field.id}>
@@ -914,10 +920,13 @@ export default function TaskDetailPanel() {
         />
 
         {wideLayout ? (
+          // The work first and widest, the short answers in a rail beside it —
+          // the arrangement every issue tracker converges on, because the title
+          // and what has to be done are what you came to read.
           <Box
             sx={{
               display: "grid",
-              gridTemplateColumns: "minmax(260px, 320px) minmax(0, 1fr)",
+              gridTemplateColumns: "minmax(0, 1fr) minmax(240px, 300px)",
               gap: 4,
               alignItems: "start",
               animation: "fieldsSettle 180ms ease-out",
@@ -928,11 +937,19 @@ export default function TaskDetailPanel() {
               "@media (prefers-reduced-motion: reduce)": { animation: "none" },
             }}
           >
-            <Box sx={{ display: "flex", flexDirection: "column", gap: 2 }}>
-              {properties.map(renderField)}
-            </Box>
             <Box sx={{ display: "flex", flexDirection: "column", gap: 2.5 }}>
-              {materials.map(renderField)}
+              {mainColumn.map(renderField)}
+            </Box>
+            <Box
+              sx={{
+                display: "flex",
+                flexDirection: "column",
+                gap: 2,
+                position: "sticky",
+                top: 0,
+              }}
+            >
+              {sideColumn.map(renderField)}
             </Box>
           </Box>
         ) : (

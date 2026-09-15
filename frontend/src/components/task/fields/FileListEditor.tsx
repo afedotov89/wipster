@@ -1,4 +1,4 @@
-import { useCallback, useRef } from "react";
+import { useCallback } from "react";
 import { Box, Button, IconButton, Tooltip, Typography } from "@mui/material";
 import CloseIcon from "@mui/icons-material/Close";
 import FolderOpenIcon from "@mui/icons-material/FolderOpen";
@@ -23,6 +23,8 @@ const reveal = (target: string) => api.revealPath(target).catch(() => {});
 const openFile = (target: string) => api.openPath(target).catch(() => {});
 
 interface Props {
+  /** Unique on screen: the drop finds its field by it. */
+  id: string;
   paths: string[];
   onChange: (paths: string[]) => void;
 }
@@ -34,17 +36,15 @@ interface Props {
  * remembers the way back. Each row opens the file or the folder holding it,
  * because "where was that again" is the whole reason the field exists.
  */
-export default function FileListEditor({ paths, onChange }: Props) {
+export default function FileListEditor({ id, paths, onChange }: Props) {
   const { t } = useI18n();
-  const dropZone = useRef<HTMLDivElement>(null);
-
   const addPaths = useCallback(
     (added: string[]) => onChange([...paths, ...added.filter((p) => !paths.includes(p))]),
     [paths, onChange],
   );
   // Dragging a file out of Finder and onto the field is how anyone would
   // expect to attach one.
-  const dragging = useFileDrop(dropZone, addPaths);
+  const dragging = useFileDrop(id, addPaths);
 
   const pick = async () => {
     try {
@@ -61,7 +61,7 @@ export default function FileListEditor({ paths, onChange }: Props) {
 
   return (
     <Box
-      ref={dropZone}
+      data-file-drop={id}
       sx={{
         display: "flex",
         flexDirection: "column",

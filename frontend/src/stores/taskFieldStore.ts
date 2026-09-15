@@ -9,7 +9,15 @@ interface TaskFieldState {
 
   load: () => Promise<void>;
   create: (label: string, kind: api.FieldKind, options?: string[]) => Promise<void>;
-  update: (id: string, patch: { label?: string; enabled?: boolean; options?: string[] }) => Promise<void>;
+  update: (
+    id: string,
+    patch: {
+      label?: string;
+      enabled?: boolean;
+      options?: string[];
+      columnSide?: "main" | "side" | "auto";
+    },
+  ) => Promise<void>;
   reorder: (ids: string[]) => Promise<void>;
   remove: (id: string) => Promise<void>;
   restore: (id: string) => Promise<void>;

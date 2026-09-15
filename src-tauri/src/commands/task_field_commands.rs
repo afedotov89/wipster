@@ -50,9 +50,18 @@ pub fn update_task_field(
     label: Option<String>,
     enabled: Option<bool>,
     options: Option<Vec<String>>,
+    // Tauri maps the caller's `columnSide` onto this.
+    column_side: Option<String>,
 ) -> Result<TaskField, String> {
     let conn = db.0.lock().map_err(|e| e.to_string())?;
-    task_fields::update(&conn, &id, label.as_deref(), enabled, options.as_deref())
+    task_fields::update(
+        &conn,
+        &id,
+        label.as_deref(),
+        enabled,
+        options.as_deref(),
+        column_side.as_deref(),
+    )
 }
 
 #[tauri::command]

@@ -26,6 +26,8 @@ pub enum Kind {
     Text,
     /// Several lines.
     LongText,
+    /// Several lines with markdown in them: read formatted, edited as source.
+    Markdown,
     Number,
     /// `YYYY-MM-DD`.
     Date,
@@ -50,6 +52,7 @@ impl Kind {
         match self {
             Kind::Text => "text",
             Kind::LongText => "long_text",
+            Kind::Markdown => "markdown",
             Kind::Number => "number",
             Kind::Date => "date",
             Kind::Checkbox => "checkbox",
@@ -66,6 +69,7 @@ impl Kind {
         Ok(match value {
             "text" => Kind::Text,
             "long_text" => Kind::LongText,
+            "markdown" => Kind::Markdown,
             "number" => Kind::Number,
             "date" => Kind::Date,
             "checkbox" => Kind::Checkbox,
@@ -94,6 +98,7 @@ impl Kind {
 pub const ALL_KINDS: &[Kind] = &[
     Kind::Text,
     Kind::LongText,
+    Kind::Markdown,
     Kind::Number,
     Kind::Date,
     Kind::Checkbox,
@@ -121,6 +126,9 @@ pub struct TaskField {
     pub position: i32,
     /// When a custom field was taken out of the list. Its values remain.
     pub removed_at: Option<String>,
+    /// Where it sits when a task fills the window: `"main"`, `"side"`, or none
+    /// for "whatever its type suggests".
+    pub column_side: Option<String>,
 }
 
 fn row_to_field(row: &rusqlite::Row) -> rusqlite::Result<TaskField> {
@@ -135,11 +143,12 @@ fn row_to_field(row: &rusqlite::Row) -> rusqlite::Result<TaskField> {
         enabled: row.get::<_, i32>(6)? == 1,
         position: row.get(7)?,
         removed_at: row.get(8)?,
+        column_side: row.get(9)?,
     })
 }
 
 const COLUMNS: &str =
-    "id, key, label, kind, options, builtin, enabled, position, removed_at";
+    "id, key, label, kind, options, builtin, enabled, position, removed_at, column_side";
 
 /// The fields in the list, in their order. Removed ones are left out.
 pub fn list(conn: &Connection) -> Result<Vec<TaskField>, String> {
@@ -235,8 +244,23 @@ pub fn update(
     label: Option<&str>,
     enabled: Option<bool>,
     options: Option<&[String]>,
+    column_side: Option<&str>,
 ) -> Result<TaskField, String> {
     let field = get(conn, id)?;
+
+    if let Some(side) = column_side {
+        // "auto" puts a field back under the rule for its type.
+        let stored = match side {
+            "main" | "side" => Some(side),
+            "auto" | "" => None,
+            other => return Err(format!("Unknown column \"{other}\": main, side or auto")),
+        };
+        conn.execute(
+            "UPDATE task_fields SET column_side = ?2 WHERE id = ?1",
+            params![id, stored],
+        )
+        .map_err(|e| e.to_string())?;
+    }
 
     if let Some(enabled) = enabled {
         conn.execute(
@@ -520,7 +544,7 @@ mod tests {
         let field = create(&conn, "Ссылки", Kind::UrlList, &[]).unwrap();
         set_value(&conn, "t1", &field.id, &serde_json::json!(["https://a.ru"])).unwrap();
 
-        update(&conn, &field.id, None, Some(false), None).unwrap();
+        update(&conn, &field.id, None, Some(false), None, None).unwrap();
 
         assert_eq!(
             values(&conn, "t1").unwrap()[&field.id],
@@ -553,9 +577,13 @@ mod tests {
         let priority = list(&conn).unwrap().into_iter().find(|f| f.key == "priority").unwrap();
 
         assert!(remove(&conn, &priority.id).is_err());
-        assert!(update(&conn, &priority.id, Some("Важность"), None, None).is_err());
-        // Switching off and reordering, though, are exactly what the list is for.
-        assert!(!update(&conn, &priority.id, None, Some(false), None).unwrap().enabled);
+        assert!(update(&conn, &priority.id, Some("Важность"), None, None, None).is_err());
+        // Switching off, reordering and moving columns are what the list is for.
+        assert!(!update(&conn, &priority.id, None, Some(false), None, None).unwrap().enabled);
+        assert_eq!(
+            update(&conn, &priority.id, None, None, None, Some("main")).unwrap().column_side,
+            Some("main".to_string()),
+        );
     }
 
     #[test]
@@ -586,6 +614,21 @@ mod tests {
         set_value(&conn, "t1", &field.id, &serde_json::json!("")).unwrap();
 
         assert!(values(&conn, "t1").unwrap().as_object().unwrap().is_empty());
+    }
+
+    #[test]
+    fn a_field_can_be_moved_between_columns_and_back() {
+        let conn = db();
+        let field = create(&conn, "Заметки", Kind::Markdown, &[]).unwrap();
+        assert_eq!(field.column_side, None, "a new field follows its type");
+
+        let moved = update(&conn, &field.id, None, None, None, Some("side")).unwrap();
+        assert_eq!(moved.column_side, Some("side".to_string()));
+
+        let back = update(&conn, &field.id, None, None, None, Some("auto")).unwrap();
+        assert_eq!(back.column_side, None);
+
+        assert!(update(&conn, &field.id, None, None, None, Some("вбок")).is_err());
     }
 
     #[test]

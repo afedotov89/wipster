@@ -16,6 +16,7 @@ import { openTarget } from "@/utils/open";
 import FieldFrame from "./FieldFrame";
 import ListFieldEditor from "./ListFieldEditor";
 import FileListEditor from "./FileListEditor";
+import MarkdownFieldEditor from "./MarkdownFieldEditor";
 
 const asText = (value: unknown) => (typeof value === "string" ? value : value == null ? "" : String(value));
 const asList = (value: unknown): string[] =>
@@ -46,6 +47,17 @@ export default function CustomFieldEditor({ field, value, expanded, onChange }: 
   useEffect(() => setDraft(asText(value)), [value, field.id]);
 
   switch (field.kind) {
+    case "markdown":
+      return (
+        <FieldFrame label={label}>
+          <MarkdownFieldEditor
+            value={asText(value)}
+            expanded={expanded}
+            onChange={(next) => onChange(next)}
+          />
+        </FieldFrame>
+      );
+
     case "long_text":
       return (
         <FieldFrame label={label}>
@@ -202,7 +214,7 @@ export default function CustomFieldEditor({ field, value, expanded, onChange }: 
     case "file_list":
       return (
         <FieldFrame label={label}>
-          <FileListEditor paths={asList(value)} onChange={onChange} />
+          <FileListEditor id={field.id} paths={asList(value)} onChange={onChange} />
         </FieldFrame>
       );
 

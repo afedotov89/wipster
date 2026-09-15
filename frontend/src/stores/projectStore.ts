@@ -1,5 +1,6 @@
 import { create } from "zustand";
 import * as api from "@/utils/tauri";
+import { useUiStore } from "@/stores/uiStore";
 import type { Project } from "@/utils/tauri";
 
 interface ProjectState {
@@ -34,6 +35,11 @@ export const useProjectStore = create<ProjectState>((set, get) => ({
   select: (id) => {
     set({ selectedProjectId: id });
     if (id) localStorage.setItem("wipster-last-project", id);
+    // A task filling the window hides the board; asking for a board means
+    // wanting to see it. Doing this here rather than in an effect matters:
+    // clicking a project and opening a task can land in the same tick, and the
+    // last action taken has to be the one that wins.
+    useUiStore.getState().setDetailExpanded(false);
   },
 
   add: async (name, parentId) => {

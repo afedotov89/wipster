@@ -5,7 +5,7 @@ use super::schema;
 /// Version the schema reaches once every migration below has run. Tests assert
 /// against this instead of a literal, so adding a migration means touching one
 /// number rather than hunting for the assertions that pinned the old one.
-pub const LATEST_VERSION: i32 = 16;
+pub const LATEST_VERSION: i32 = 17;
 
 pub fn run(conn: &Connection) -> Result<(), Box<dyn std::error::Error>> {
     let version = current_version(conn);
@@ -200,6 +200,14 @@ pub fn run(conn: &Connection) -> Result<(), Box<dyn std::error::Error>> {
                 ('builtin-tracker-url',   'tracker_url',   'url',       1, 8),
                 ('builtin-comment',       'comment',       'long_text', 1, 9);",
         )?;
+        conn.execute("INSERT OR REPLACE INTO schema_version (version) VALUES (?1)", [16])?;
+    }
+
+    if version < 17 {
+        // Which column a field sits in when a task fills the window. NULL means
+        // "decide from the type", which is what every field starts as — so the
+        // layout is unchanged until someone moves something.
+        conn.execute_batch("ALTER TABLE task_fields ADD COLUMN column_side TEXT;")?;
         conn.execute(
             "INSERT OR REPLACE INTO schema_version (version) VALUES (?1)",
             [LATEST_VERSION],

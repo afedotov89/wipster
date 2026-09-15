@@ -56,7 +56,7 @@ export const useUiStore = create<UiState>((set) => ({
   agentPanelOpen: false,
   settingsSection: DEFAULT_SETTINGS_SECTION,
 
-  setView: (view) => set({ view }),
+  setView: (view) => set({ view, detailExpanded: false }),
   setAgentPanelOpen: (agentPanelOpen) => set({ agentPanelOpen }),
   openSettings: (section) =>
     set(section ? { settingsOpen: true, settingsSection: section } : { settingsOpen: true }),

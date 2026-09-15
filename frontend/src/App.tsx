@@ -9,6 +9,7 @@ import { useUndoRedo } from "./hooks/useUndoRedo";
 import { useAutoUpdater } from "./hooks/useAutoUpdater";
 import UpdateBanner from "./components/layout/UpdateBanner";
 import { useUpdateStore } from "./stores/updateStore";
+import { useTaskFieldStore } from "./stores/taskFieldStore";
 
 function AppContent() {
   useUndoRedo();
@@ -31,10 +32,14 @@ export default function App() {
   const current = useThemeStore((s) => s.current);
   const hydrateFromDb = useThemeStore((s) => s.hydrateFromDb);
   const hydrateSettings = useSettingsStore((s) => s.hydrate);
+  const loadTaskFields = useTaskFieldStore((s) => s.load);
   const muiTheme = useMemo(() => buildMuiTheme(current), [current]);
 
   useEffect(() => { hydrateFromDb(); }, [hydrateFromDb]);
   useEffect(() => { hydrateSettings(); }, [hydrateSettings]);
+  // Which fields a task has is the same for every task and is needed the moment
+  // one is opened: fetching it then makes the panel appear in two steps.
+  useEffect(() => { void loadTaskFields().catch(() => {}); }, [loadTaskFields]);
   // Lets the assistant switch views, open a task or change the theme.
   useAiUiCommands();
 

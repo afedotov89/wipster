@@ -252,6 +252,7 @@ export const revealPath = (path: string) => invoke<void>("reveal_path", { path }
 export type FieldKind =
   | "text"
   | "long_text"
+  | "markdown"
   | "number"
   | "date"
   | "checkbox"
@@ -275,6 +276,8 @@ export interface TaskField {
   enabled: boolean;
   position: number;
   removed_at: string | null;
+  /** "main", "side", or null for "whatever the type suggests". */
+  column_side: "main" | "side" | null;
 }
 
 /** Whatever a custom field holds, keyed by field id. */
@@ -289,7 +292,13 @@ export const createTaskField = (label: string, kind: FieldKind, options?: string
 
 export const updateTaskField = (
   id: string,
-  patch: { label?: string; enabled?: boolean; options?: string[] },
+  patch: {
+    label?: string;
+    enabled?: boolean;
+    options?: string[];
+    /** "auto" hands the decision back to the field's type. */
+    columnSide?: "main" | "side" | "auto";
+  },
 ) => invoke<TaskField>("update_task_field", { id, ...patch });
 
 export const reorderTaskFields = (ids: string[]) =>

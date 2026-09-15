@@ -93,7 +93,9 @@ pub fn update_task_field(conn: &Connection, args: &Value) -> Result<String, Stri
         items.iter().filter_map(|i| i.as_str().map(str::to_string)).collect()
     });
 
-    let updated = task_fields::update(conn, &field.id, label, enabled, options.as_deref())?;
+    let side = args["column"].as_str();
+    let updated =
+        task_fields::update(conn, &field.id, label, enabled, options.as_deref(), side)?;
     let name = updated.label.clone().unwrap_or_else(|| updated.key.clone());
     Ok(match enabled {
         Some(true) => format!("\"{name}\" shows again, with everything it held."),
@@ -180,6 +182,11 @@ pub fn tools() -> Vec<Tool> {
                         "enabled": { "type": "boolean", "description": "false hides it, true brings it back" },
                         "label": { "type": "string", "description": "A new name — custom fields only" },
                         "options": { "type": "array", "items": { "type": "string" } },
+                        "column": {
+                            "type": "string",
+                            "enum": ["main", "side", "auto"],
+                            "description": "Where it sits when a task fills the window",
+                        },
                     },
                     "required": ["field"]
                 })

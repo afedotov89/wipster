@@ -1,4 +1,4 @@
-use std::path::{Path, PathBuf};
+use std::path::PathBuf;
 use std::process::Command;
 
 /// `~/…` is a shell's shorthand, not a path — expand it before touching disk.
@@ -51,8 +51,8 @@ mod tests {
     #[test]
     fn a_home_shorthand_becomes_a_real_path() {
         let home = std::env::var("HOME").unwrap();
-        assert_eq!(resolve("~/Documents"), Path::new(&home).join("Documents"));
-        assert_eq!(resolve("/tmp/x"), Path::new("/tmp/x"));
+        assert_eq!(resolve("~/Documents"), PathBuf::from(&home).join("Documents"));
+        assert_eq!(resolve("/tmp/x"), PathBuf::from("/tmp/x"));
     }
 
     /// A path that is gone says so, instead of failing silently the way the
