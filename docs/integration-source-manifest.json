@@ -13,7 +13,7 @@
     "local docs/deployment-evidence logs"
   ],
   "files": {
-    ".github/workflows/backend_deployment.yml": "6def1f15936bd192956ed11d531c96f92c373b05a521268a89c351ffe71444b1",
+    ".github/workflows/backend_deployment.yml": "ba9447dc78c3ddb9b178bae38718fc31eeaf1ab7ac4188d57deee626c986191e",
     ".github/workflows/cloud-ci.yml": "a86a0eb8ac5def9ad8ee3a21f0f2d2a4b9ed8428574a41ad8ed5c3f727473f22",
     ".github/workflows/frontend_deployment.yml": "2a61a3a326a28989499eaf8f96f921f9f73dae48d27f5e52ddfd6d6412aaaed1",
     ".github/workflows/manage_command.yml": "9af55cd8d5b444f40c0e6aa94d68cda0998dc863762cebf03312ecc34a6c470f",
@@ -124,5 +124,12 @@
   },
   "manifest_self_excluded": true,
   "integrated_ops_sha256": "70f43a6b997bb8144eacb3e493e50bc39f38571e349651565e094eef9fc51a3a",
-  "deployment_normalization": "Removed one trailing space in verify_archive.py; no runtime behavior/auth changes."
+  "deployment_normalization": "Removed one trailing space in verify_archive.py; no runtime behavior/auth changes.",
+  "ci_corrections": [
+    {
+      "run_id": 43457177601,
+      "previous_source": "75a4d232196d907b567dcd3b015232784022d856",
+      "change": "Use double quotes for GitHub Runner service health-cmd parsing; no app/runtime behavior changes"
+    }
+  ]
 }
