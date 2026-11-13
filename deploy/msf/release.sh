@@ -56,6 +56,11 @@ if [[ $ACTION == rollback ]]; then
 fi
 [[ $ACTION == deploy ]] || exit 2
 SOURCE=${2:?source SHA} IMAGE=${3:?image ID} ARCHIVE=${4:?archive checksum}
+CONFIG_IMAGE=${5:-$IMAGE} OPS_SOURCE=${6:-} PROMOTION_RUN=${7:-}
+[[ $SOURCE =~ ^[0-9a-f]{40}$ && $IMAGE =~ ^sha256:[0-9a-f]{64}$ && $CONFIG_IMAGE =~ ^sha256:[0-9a-f]{64}$ && $ARCHIVE =~ ^[0-9a-f]{64}$ ]] || exit 2
+if [[ -n $OPS_SOURCE$PROMOTION_RUN ]]; then
+    [[ $OPS_SOURCE =~ ^[0-9a-f]{40}$ && $PROMOTION_RUN =~ ^[1-9][0-9]{0,19}$ ]] || exit 2
+fi
 SLOT=blue
 OLD_RECORD=$(readlink "$ROOT/runtime/current" 2>/dev/null || true)
 OLD_ROUTE=maintenance.conf
@@ -67,13 +72,23 @@ fi
 RELEASE=$(date -u +%Y%m%dT%H%M%SZ)-$SOURCE-$$
 RECORD="$ROOT/releases/$RELEASE"
 mkdir "$RECORD"
-python3 - "$RECORD/record.json" "$SOURCE" "$IMAGE" "$ARCHIVE" "$SLOT" <<'PY'
+python3 - "$RECORD/record.json" "$SOURCE" "$IMAGE" "$ARCHIVE" "$SLOT" "$CONFIG_IMAGE" "$OPS_SOURCE" "$PROMOTION_RUN" <<'PY'
 import json,sys,datetime
 from pathlib import Path
-path,source,image,archive,slot=sys.argv[1:]
+path,source,image,archive,slot,config,ops_source,promotion_run=sys.argv[1:]
 with open(path,'w') as f:
     ops=(Path(path).parents[2]/'config/ops.sha256').read_text().strip()
-    json.dump(dict(source=source,image=image,archive_sha256=archive,ops_sha256=ops,slot=slot,created_at=datetime.datetime.now(datetime.timezone.utc).isoformat()),f,indent=2)
+    source_path=Path(path).parents[2]/'config/ops.source'
+    installed_source=source_path.read_text().strip() if source_path.exists() else None
+    if ops_source:
+        assert installed_source == ops_source, 'Installed ops source mismatch'
+    record = dict(source=source,image=image,image_config_sha256=config,archive_sha256=archive,ops_sha256=ops,ops_source=installed_source,promotion_run=int(promotion_run) if promotion_run else None,slot=slot,created_at=datetime.datetime.now(datetime.timezone.utc).isoformat())
+    receipt = Path(path).parents[2]/'config/approved_artifact.json'
+    if receipt.exists():
+        approved = json.loads(receipt.read_text())
+        if (source, config, archive) == (approved['source'], approved['image'], approved['archive_sha256']):
+            record['build_provenance'] = approved
+    json.dump(record,f,indent=2)
 PY
 FAILED=1
 cleanup() {

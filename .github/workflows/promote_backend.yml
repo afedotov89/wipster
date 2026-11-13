@@ -1,0 +1,71 @@
+name: Promote reviewed Wipster artifact
+on:
+  workflow_dispatch:
+permissions:
+  contents: read
+  actions: read
+concurrency:
+  group: wipster-msf-production
+  cancel-in-progress: false
+jobs:
+  promote:
+    if: github.repository == 'afedotov89/wipster' && github.ref == 'refs/heads/main' && vars.WIPSTER_DEPLOY_ENABLED == 'true'
+    environment: wipster-production
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    env:
+      EXPECTED_INSTALLED_OPS: 53d1cf98789d5a9e5d784e14f79fabb0fd80969a408c11a4b718734b807a2952
+      OPS_SOURCE: ${{ github.workflow_sha }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.workflow_sha }}
+          persist-credentials: false
+      - name: Verify reviewed checkout and fetch exact historical artifact
+        id: artifact
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          test "$(git rev-parse HEAD)" = "$OPS_SOURCE"
+          python3 deploy/promotion/promote.py verified
+      - name: Deliver original image with explicitly reviewed runtime ops
+        env:
+          DEPLOY_KEY: ${{ secrets.WIPSTER_MSF_DEPLOY_KEY }}
+          KNOWN_HOSTS: ${{ secrets.WIPSTER_MSF_KNOWN_HOSTS }}
+          SOURCE: ${{ steps.artifact.outputs.source }}
+          CONFIG: ${{ steps.artifact.outputs.config }}
+          ARCHIVE: ${{ steps.artifact.outputs.archive }}
+          OPS: ${{ steps.artifact.outputs.ops }}
+        run: |
+          umask 077
+          key_dir=$(mktemp -d)
+          trap 'rm -rf "$key_dir"' EXIT
+          printf '%s\n' "$DEPLOY_KEY" > "$key_dir/key"
+          printf '%s\n' "$KNOWN_HOSTS" > "$key_dir/known_hosts"
+          unset DEPLOY_KEY KNOWN_HOSTS
+          ssh -T -o BatchMode=yes -o StrictHostKeyChecking=yes -o UserKnownHostsFile="$key_dir/known_hosts" -o IdentitiesOnly=yes -i "$key_dir/key" fedotov@95.84.162.15 "deploy $SOURCE $CONFIG $ARCHIVE $OPS $OPS_SOURCE $GITHUB_RUN_ID" < verified/backend-image.tar.gz
+      - name: Verify exact public release and enabled provider
+        env:
+          SOURCE: ${{ steps.artifact.outputs.source }}
+        run: |
+          curl --fail --silent --show-error --max-time 15 https://wipster.fedotovs.net/healthz
+          curl --fail --silent --show-error --max-time 15 -D verified/headers.txt https://wipster.fedotovs.net/readyz > /dev/null
+          python3 - <<'PY'
+          import os,re
+          from pathlib import Path
+          headers=Path('verified/headers.txt').read_text()
+          release=re.search(r'^x-wipster-release:\s*(\S+)',headers,re.I|re.M).group(1)
+          assert re.fullmatch(r'[0-9TZ]+-'+os.environ['SOURCE']+r'-[0-9]+',release)
+          print('Verified exact release',release)
+          PY
+          curl --fail --silent --show-error --max-time 15 https://wipster.fedotovs.net/api/v1/auth/capabilities > verified/capabilities.json
+          python3 -c 'import json; d=json.load(open("verified/capabilities.json")); assert d["yandex"] is True and d["google"] is False and d["sms"] is False'
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: promotion-receipt-${{ github.run_id }}
+          path: |
+            verified/promotion-receipt.json
+            verified/headers.txt
+            verified/capabilities.json
+          if-no-files-found: ignore

@@ -3,6 +3,8 @@
 # Installs Wipster files only. Does not start containers, nginx, timers or deploy.
 set -euo pipefail
 SOURCE=${1:?Path containing reviewed deploy/msf files}
+OPS_SOURCE=${2:-}
+[[ -z $OPS_SOURCE || $OPS_SOURCE =~ ^[0-9a-f]{40}$ ]] || { echo 'Invalid reviewed ops source' >&2; exit 2; }
 ROOT=/srv/wipster
 [[ $(id -un) == fedotov ]] || { echo 'Run as fedotov on msf' >&2; exit 1; }
 [[ $(hostname -s) == msf ]] || { echo 'Expected msf host' >&2; exit 1; }
@@ -11,15 +13,19 @@ sudo -n install -d -o fedotov -g fedotov -m 700 "$ROOT/secrets" "$ROOT/runtime" 
 # Parent is private; routing alone must be traversable by nginx uid 101.
 chmod 711 "$ROOT/runtime"
 install -d -m 755 "$ROOT/runtime/routing"
-for f in receive.sh release.sh backup.sh cleanup-auth.sh validate_env.py verify_archive.py; do
+for f in receive.sh release.sh backup.sh cleanup-auth.sh validate_env.py verify_archive.py verify_loaded.py; do
     sudo -n install -o root -g root -m 755 "$SOURCE/$f" "$ROOT/bin/$f"
 done
-for f in compose.infra.yaml compose.app.yaml images.env proxy_wsgi.py; do
+for f in compose.infra.yaml compose.app.yaml images.env proxy_wsgi.py approved_artifact.json; do
     sudo -n install -o root -g root -m 644 "$SOURCE/$f" "$ROOT/config/$f"
 done
 sudo -n install -o root -g root -m 644 "$SOURCE/nginx/gateway.conf" "$ROOT/config/nginx/gateway.conf"
 sudo -n install -o root -g root -m 644 "$SOURCE/site/index.html" "$ROOT/site/index.html"
 python3 "$SOURCE/ops_hash.py" "$SOURCE" | sudo -n tee "$ROOT/config/ops.sha256" > /dev/null
+if [[ -n $OPS_SOURCE ]]; then
+    printf '%s\n' "$OPS_SOURCE" | sudo -n tee "$ROOT/config/ops.source" > /dev/null
+    sudo -n chmod 644 "$ROOT/config/ops.source"
+fi
 # Generate server-only credentials; never overwrite established secrets.
 python3 - "$ROOT" <<'PY'
 import os,secrets,sys
