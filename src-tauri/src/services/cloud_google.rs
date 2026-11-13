@@ -26,7 +26,7 @@ pub async fn cloud_capabilities(origin_url: String) -> Result<Value> {
         return Err(cloud::api_error(s, &b));
     }
     // Project only public flags, never arbitrary server fields into React.
-    Ok(json!({"google":b["google"] == true,"sms":b["sms"] == true}))
+    Ok(json!({"yandex":b["yandex"] == true,"google":b["google"] == true,"sms":b["sms"] == true}))
 }
 
 #[tauri::command]

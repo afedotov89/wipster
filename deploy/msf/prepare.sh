@@ -11,7 +11,7 @@ sudo -n install -d -o fedotov -g fedotov -m 700 "$ROOT/secrets" "$ROOT/runtime" 
 # Parent is private; routing alone must be traversable by nginx uid 101.
 chmod 711 "$ROOT/runtime"
 install -d -m 755 "$ROOT/runtime/routing"
-for f in receive.sh release.sh backup.sh validate_env.py verify_archive.py; do
+for f in receive.sh release.sh backup.sh cleanup-auth.sh validate_env.py verify_archive.py; do
     sudo -n install -o root -g root -m 755 "$SOURCE/$f" "$ROOT/bin/$f"
 done
 for f in compose.infra.yaml compose.app.yaml images.env proxy_wsgi.py; do
@@ -29,7 +29,7 @@ db=root/'secrets/db.env'; api=root/'secrets/api.env'
 if not db.exists() and not api.exists():
     password=secrets.token_hex(32)
     for path,text in [(db,f'POSTGRES_DB=wipster\nPOSTGRES_USER=wipster\nPOSTGRES_PASSWORD={password}\n'),
-                      (api,f'DEBUG=false\nSECRET_KEY={secrets.token_urlsafe(64)}\nDATABASE_URL=postgresql://wipster:{password}@db:5432/wipster\nALLOWED_HOSTS=wipster.fedotovs.net\nGOOGLE_ENABLED=true\nGOOGLE_CLIENT_ID=\nGOOGLE_CLIENT_SECRET=\nOTP_PROVIDER=disabled\nDEV_OTP_ENABLED=false\nTRUST_PROXY_TLS=true\nCORS_ALLOWED_ORIGINS=\n')]:
+                      (api,f'DEBUG=false\nSECRET_KEY={secrets.token_urlsafe(64)}\nDATABASE_URL=postgresql://wipster:{password}@db:5432/wipster\nALLOWED_HOSTS=wipster.fedotovs.net\nYANDEX_ENABLED=true\nYANDEX_CLIENT_ID=\nYANDEX_CLIENT_SECRET=\nGOOGLE_ENABLED=false\nOTP_PROVIDER=disabled\nDEV_OTP_ENABLED=false\nTRUST_PROXY_TLS=true\nCORS_ALLOWED_ORIGINS=\n')]:
         fd=os.open(path,os.O_WRONLY|os.O_CREAT|os.O_EXCL,0o600)
         with os.fdopen(fd,'w') as f: f.write(text)
 elif not (db.exists() and api.exists()):
@@ -43,4 +43,4 @@ if not (routing/'active.conf').exists():
     (routing/'active.conf').write_text('return 503;\n')
     (routing/'active.conf').chmod(0o644)
 PY
-echo 'Wipster prepared only; rollout gate closed until lead accepts combined source and real Google configuration.'
+echo 'Wipster prepared only; rollout gate closed until lead accepts combined source and real Yandex OAuth configuration.'

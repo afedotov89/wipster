@@ -1,12 +1,12 @@
 import json
 from functools import wraps
-from django.http import JsonResponse
+from django.http import JsonResponse, HttpResponse
 from django.urls import path
 from django.db import connection, DatabaseError, transaction
 from django.utils import timezone
 from django.views.decorators.csrf import csrf_exempt
 from apps.accounts import service as auth
-from apps.accounts import google
+from apps.accounts import google, yandex
 from apps.sync import service as sync
 from apps.sync.encoding import JSON_PARAMS
 
@@ -48,6 +48,28 @@ def google_endpoint(action, link=False):
     def handler(request, body, session):
         return action(body, request.META.get('REMOTE_ADDR', 'unknown'), session)
     return handler
+
+
+@csrf_exempt
+def yandex_callback(request):
+    status = 200
+    message = 'Вход завершён. Вернитесь в Wipster.'
+    try:
+        if request.method != 'GET':
+            raise auth.APIError('method_not_allowed', 405)
+        if yandex.callback(request.GET, request.META.get('REMOTE_ADDR', 'unknown')) == 'denied':
+            message = 'Вход не разрешён. Вернитесь в Wipster и попробуйте снова.'
+    except auth.APIError as error:
+        status = error.status
+        message = 'Не удалось завершить вход. Вернитесь в Wipster и начните заново.'
+    # Only constants reach this page; no query, code, state, proof or session.
+    response = HttpResponse('<!doctype html><html lang="ru"><meta charset="utf-8">'
+                            '<title>Wipster</title><h1>Wipster</h1><p>' + message + '</p></html>', status=status)
+    response['Cache-Control'] = 'no-store'
+    response['Referrer-Policy'] = 'no-referrer'
+    response['Content-Security-Policy'] = "default-src 'none'; frame-ancestors 'none'; base-uri 'none'; form-action 'none'"
+    response['X-Frame-Options'] = 'DENY'
+    return response
 
 
 @endpoint('POST')
@@ -94,6 +116,7 @@ def ready(request):
             cursor.execute('SELECT phone FROM accounts_phoneidentity LIMIT 1')
             cursor.execute('SELECT subject FROM accounts_externalidentity LIMIT 1')
             cursor.execute('SELECT consumed FROM accounts_googleattempt LIMIT 1')
+            cursor.execute('SELECT status FROM accounts_yandexattempt LIMIT 1')
             cursor.execute('SELECT sequence FROM sync_change LIMIT 1')
         return JsonResponse({'status': 'ok'})
     except DatabaseError:
@@ -101,6 +124,11 @@ def ready(request):
 
 
 urlpatterns = [path('api/v1/auth/capabilities', capabilities),
+               path('api/v1/auth/yandex/callback', yandex_callback),
+               *[path(f'api/v1/auth/yandex/{prefix}{name}', google_endpoint(action, link))
+                 for prefix, link in [('', False), ('link/', True)]
+                 for name, action in [('start', yandex.start), ('status', yandex.status),
+                                      ('finish', yandex.finish), ('cancel', yandex.cancel)]],
                *[path(f'api/v1/auth/google/{prefix}{name}', google_endpoint(action, link))
                  for prefix, link in [('', False), ('link/', True)]
                  for name, action in [('start', google.start), ('finish', google.finish), ('cancel', google.cancel)]],

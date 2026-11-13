@@ -1,3 +1,5 @@
+> Superseded for primary login by [Yandex ID](yandex-auth-contract.md). Historical Google adapter setup is optional and does not block Yandex.
+
 # Google sign-in: external setup and local verification
 
 2026-11-13. Code/local tests only. No Google project, credentials, brand submission, service activation or deployment was created by this task. Protocol: [google-auth-contract.md](google-auth-contract.md).

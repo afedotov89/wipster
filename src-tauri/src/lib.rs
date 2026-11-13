@@ -21,9 +21,13 @@ pub fn run() {
             let db = db::connection::init_db(app.handle())?;
             app.manage(DbState::new(db));
             app.manage(services::cloud_google::GoogleState::default());
-            app.manage(services::cloud::CloudState(tokio::sync::Mutex::new(services::cloud::Runtime {
-                active: services::cloud::load(app.handle())?, ..Default::default()
-            })));
+            app.manage(services::cloud_yandex::YandexState::default());
+            app.manage(services::cloud::CloudState(tokio::sync::Mutex::new(
+                services::cloud::Runtime {
+                    active: services::cloud::load(app.handle())?,
+                    ..Default::default()
+                },
+            )));
 
             // Tools that act on the interface need a window to talk to.
             services::ui_bridge::attach(app.handle().clone());
@@ -38,6 +42,8 @@ pub fn run() {
             services::cloud_google::cloud_capabilities,
             services::cloud_google::cloud_google_login,
             services::cloud_google::cloud_google_cancel,
+            services::cloud_yandex::cloud_yandex_login,
+            services::cloud_yandex::cloud_yandex_cancel,
             services::cloud::cloud_import_preview,
             services::cloud::cloud_start,
             services::cloud::cloud_login,

@@ -70,3 +70,19 @@ class GoogleAttempt(models.Model):
     expires_at = models.DateTimeField(db_index=True)
     consumed = models.BooleanField(default=False)
     cancelled = models.BooleanField(default=False)
+
+
+class YandexAttempt(models.Model):
+    """Durable browser/native rendezvous. Provider credentials are never retained."""
+    id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
+    proof_hash = models.CharField(max_length=64)
+    state = models.CharField(max_length=43, unique=True)
+    verifier = models.CharField(max_length=128, blank=True)
+    link_session = models.ForeignKey(DeviceSession, null=True, on_delete=models.CASCADE, related_name='+')
+    result_session = models.ForeignKey(DeviceSession, null=True, on_delete=models.CASCADE, related_name='+')
+    device_name = models.CharField(max_length=100)
+    expires_at = models.DateTimeField(db_index=True)
+    status = models.CharField(max_length=16, default='pending')
+    subject = models.CharField(max_length=255, blank=True)
+    email = models.EmailField(blank=True)
+    name = models.CharField(max_length=200, blank=True)

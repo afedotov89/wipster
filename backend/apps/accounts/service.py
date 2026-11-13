@@ -35,10 +35,12 @@ def canonical_phone(value):
 def reserve_limits(action, phone, ip):
     """Commit reservations before rejecting, locking global/IP before phone rows."""
     now = timezone.now()
-    starting = action in ('send', 'google_start')
+    starting = action in ('send', 'google_start', 'yandex_start')
     scopes = [('global', 600 if starting else 3000),
               ('ip:' + ip, 20 if starting else 100)]
-    if not action.startswith('google_'):
+    if action == 'yandex_status':
+        scopes = [('global', 18000), ('ip:' + ip, 900)]
+    if not action.startswith(('google_', 'yandex_')):
         scopes.append(('phone:' + phone, 5 if action == 'send' else 30))
     limits = [(f'{action}:{scope}:{int(now.timestamp()) // 3600}', cap, 3600) for scope, cap in scopes]
     if action == 'send':
@@ -132,11 +134,13 @@ def authenticate(request):
     return session
 
 
-def issue_session(account, device_name, identity=None):
-    token = secrets.token_urlsafe(32)
+def issue_session(account, device_name, identity=None, *, token=None):
+    token = token or secrets.token_urlsafe(32)
     expires = timezone.now() + timedelta(days=30)
     DeviceSession.objects.create(token_hash=digest(token), account=account,
                                  device_name=str(device_name or 'Wipster')[:100], expires_at=expires)
     return {'token': token, 'account_id': str(account.id), 'phone': account.phone,
             'email': identity.email if identity else '', 'name': identity.name if identity else '',
-            'google_linked': account.identities.exists(), 'expires_at': expires.isoformat()}
+            'google_linked': account.identities.filter(issuer='https://accounts.google.com').exists(),
+            'yandex_linked': account.identities.filter(issuer='https://login.yandex.ru').exists(),
+            'expires_at': expires.isoformat()}

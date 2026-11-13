@@ -18,6 +18,12 @@ GOOGLE_CLIENT_ID = env('GOOGLE_CLIENT_ID', default='')
 GOOGLE_CLIENT_SECRET = env('GOOGLE_CLIENT_SECRET', default='')
 if GOOGLE_ENABLED and not re.fullmatch(r'[A-Za-z0-9_-]+\.apps\.googleusercontent\.com', GOOGLE_CLIENT_ID):
     raise ImproperlyConfigured('Google requires a configured Desktop OAuth client ID')
+YANDEX_ENABLED = env.bool('YANDEX_ENABLED', default=False)
+YANDEX_CLIENT_ID = env('YANDEX_CLIENT_ID', default='')
+# PKCE supports omitting the secret. Never send this value to native/frontend.
+YANDEX_CLIENT_SECRET = env('YANDEX_CLIENT_SECRET', default='')
+if YANDEX_ENABLED and not re.fullmatch(r'[a-f0-9]{32}', YANDEX_CLIENT_ID):
+    raise ImproperlyConfigured('Yandex requires a configured authorization app client ID')
 TWILIO_ACCOUNT_SID = env('TWILIO_ACCOUNT_SID', default='')
 TWILIO_AUTH_TOKEN = env('TWILIO_AUTH_TOKEN', default='')
 TWILIO_VERIFY_SERVICE_SID = env('TWILIO_VERIFY_SERVICE_SID', default='')
@@ -32,8 +38,8 @@ if not DEBUG:
         raise ImproperlyConfigured('Production requires a strong SECRET_KEY (50+ characters)')
     if DATABASES['default']['ENGINE'] != 'django.db.backends.postgresql':
         raise ImproperlyConfigured('Production requires PostgreSQL')
-    if not GOOGLE_ENABLED and OTP_PROVIDER != 'twilio':
-        raise ImproperlyConfigured('Production requires configured Google or Twilio Verify')
+    if not YANDEX_ENABLED and not GOOGLE_ENABLED and OTP_PROVIDER != 'twilio':
+        raise ImproperlyConfigured('Production requires configured Yandex ID, Google or Twilio Verify')
     if DEV_OTP_ENABLED or '*' in ALLOWED_HOSTS or 'testserver' in ALLOWED_HOSTS:
         raise ImproperlyConfigured('Unsafe production configuration')
 INSTALLED_APPS = ['django.contrib.contenttypes', 'corsheaders', 'apps.accounts', 'apps.sync']

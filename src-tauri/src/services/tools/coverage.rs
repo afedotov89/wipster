@@ -22,6 +22,8 @@ use Coverage::{Tool, Withheld};
 pub const COMMANDS: &[(&str, Coverage)] = &[
     // --- Cloud account: credentials and destructive workspace decisions belong to the user.
     ("cloud_capabilities", Withheld("cloud account authentication belongs to the user")),
+    ("cloud_yandex_login", Withheld("cloud account authentication belongs to the user")),
+    ("cloud_yandex_cancel", Withheld("cloud account authentication belongs to the user")),
     ("cloud_google_login", Withheld("cloud account authentication belongs to the user")),
     ("cloud_google_cancel", Withheld("cloud account authentication belongs to the user")),
     ("cloud_import_preview", Withheld("review of a private workspace import belongs to the user")),

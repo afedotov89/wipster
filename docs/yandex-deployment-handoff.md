@@ -1,0 +1,22 @@
+# Передача deployment worker: Яндекс ID
+
+Auth worker владеет backend/native/UI/tests и этим отдельным документом. `deploy/msf`, `.github/workflows`, существующие operations/deployment docs и сервер остаются за deployment worker; их auth worker не меняет. Предыдущая Google primary конфигурация отменена решением владельца.
+
+- Production: `YANDEX_ENABLED=true`, реальный 32 hex `YANDEX_CLIENT_ID`; `YANDEX_CLIENT_SECRET` необязателен при S256 PKCE, server-only. `GOOGLE_ENABLED=false`, `OTP_PROVIDER=disabled`, `DEV_OTP_ENABLED=false`. Сильный SECRET_KEY, PostgreSQL, DEBUG=false, точный ALLOWED_HOSTS и доверенный TLS ingress сохраняются. Старые sessions/Account UUID не меняются.
+- Web services Redirect URI: **https://wipster.fedotovs.net/api/v1/auth/yandex/callback**, без `/` в конце. Это константа, env override отсутствует. Разрешить GET именно этого пути; backend POST start/status/finish/cancel и link-варианты под `/api/v1/auth/yandex/`.
+- Нельзя логировать query string callback (code/state), Authorization, POST bodies/response bodies auth endpoints. Access logs ingress должны использовать path без args; Gunicorn access logging также только path/без запроса целиком. Callback возвращает статическую no-store/no-referrer CSP страницу.
+- Poll раз в 2 секунды до 5 минут. Ingress quota должна позволять этот профиль и два независимых устройства. Backend status quota: 900/IP/hour, 18000/global/hour; start 20/IP/hour, 600/global/hour; прочие auth 100/IP/hour, 3000/global/hour. Не применять низкую общую auth quota к status без отдельного расчёта. При trusted proxy REMOTE_ADDR должен соответствовать существующей принятой стратегии, произвольный X-Forwarded-For не доверяется.
+- Миграция `accounts/0005_yandexattempt` добавляет только отдельную таблицу. `/readyz` теперь проверяет её наличие. Один migration job до включения API; старые Account/GoogleAttempt/ExternalIdentity и sync данные сохраняются.
+- Egress только HTTPS `oauth.yandex.ru` и `login.yandex.ru`; endpoints фиксированы кодом. Требования Google JWKS не нужны для отключённого адаптера.
+- `GET /api/v1/auth/capabilities` после реальной настройки: `{yandex:true,google:false,sms:false}`. Нет dev bypass в production; test WSGI fixture находится в tests и требует DEBUG + DEV_OTP_ENABLED + явный opt-in.
+- Временные попытки (включая state/verifier) имеют 5-минутный TTL по проверкам API; verifier очищается при callback/cancel. Для удаления истёкших строк предусмотрен `manage.py cleanup_yandex_attempts`; запускать существующим способом плановых работ. Строки нельзя удалять до expiry: finish retry восстанавливает потерянный ответ в этом окне.
+
+Никакого push/deploy/release или создания Yandex app в auth задаче. Gate: независимое принятие auth изменений → exact combined green CI → реальные настройки владельца → отдельно авторизованный rollout и реальный browser login. Mocked HTTP/native проверки не доказывают реальную авторизацию. [Короткий setup владельца](yandex-auth-setup.md), [контракт](yandex-auth-contract.md).
+
+## Дополнение для CI и локальной проверки
+
+Auth worker добавил forwarding `YANDEX_ENABLED/CLIENT_ID/CLIENT_SECRET` в корневой **локальный** `compose.yaml` (default false), в дополнение к backend env examples. Production compose под `deploy/msf` по-прежнему принадлежит deployment worker.
+
+CI должен запускать новый ignored native тест отдельно от исторического Google. Точные env для **изолированной тестовой БД**, не production: `DEBUG=true DEV_OTP_ENABLED=true OTP_PROVIDER=disabled YANDEX_ENABLED=true YANDEX_CLIENT_ID=aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa WIPSTER_YANDEX_TEST_PROVIDER=1 DATABASE_URL=<isolated test DB>`. Сначала `python backend/manage.py migrate --noinput`, затем `backend/.venv/bin/gunicorn --chdir backend tests_cloud.yandex_mock_wsgi:application --bind 127.0.0.1:18082 --workers 2`. После readiness: `WIPSTER_TEST_API=http://127.0.0.1:18082 cargo test --locked --manifest-path src-tauri/Cargo.toml --lib native_yandex_two_device_sessions_over_http -- --ignored`. Fixture подменяет только provider HTTP, проверяет PKCE и header userinfo; native выполняет настоящий HTTP к API. Subject уникален на каждый запуск теста, чтобы повтор не сталкивался с прежними тестовыми данными. Фиксированный production callback native заменяет loopback-запросом **только в `#[cfg(test)]`**.
+
+Обычные PostgreSQL backend tests включают новый `test_yandex.py` автоматически; не исключать существующие Google/phone/sync регрессии. Все тестовые env/процессы должны быть изолированы, test provider module никогда не выбирать production WSGI entrypoint.

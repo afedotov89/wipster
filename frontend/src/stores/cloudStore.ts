@@ -6,7 +6,7 @@ import { useTaskFieldStore } from './taskFieldStore';
 import { useSettingsStore } from './settingsStore';
 
 export interface CloudStatus {
-  account: { origin: string; account_id: string; phone?: string | null; email?: string; name?: string; google_linked?: boolean } | null;
+  account: { origin: string; account_id: string; phone?: string | null; email?: string; name?: string; google_linked?: boolean; yandex_linked?: boolean } | null;
   pending: number;
   pending_revocations?: number;
   conflict: boolean;

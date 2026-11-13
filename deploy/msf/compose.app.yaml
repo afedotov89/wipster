@@ -3,7 +3,7 @@ services:
     image: ${WIPSTER_IMAGE:?Immutable image ID required}
     pull_policy: never
     env_file: ${WIPSTER_ROOT:-/srv/wipster}/secrets/api.env
-    command: [gunicorn, deploy_wsgi:application, --bind, '0.0.0.0:8080', --workers, '2', --timeout, '60', --max-requests, '1000', --max-requests-jitter, '100', --worker-tmp-dir, /tmp, --access-logfile, /dev/null]
+    command: [gunicorn, deploy_wsgi:application, --bind, '0.0.0.0:8080', --workers, '2', --timeout, '60', --max-requests, '1000', --max-requests-jitter, '100', --worker-tmp-dir, /tmp, --access-logfile, /dev/null, --error-logfile, /dev/null, --capture-output]
     volumes:
       - ${WIPSTER_ROOT:-/srv/wipster}/config/proxy_wsgi.py:/app/deploy_wsgi.py:ro
     networks:

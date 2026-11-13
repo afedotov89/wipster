@@ -27,15 +27,13 @@ def read(name):
 a = read('api.env')
 d = read('db.env')
 required = {'DEBUG': 'false', 'DEV_OTP_ENABLED': 'false', 'OTP_PROVIDER': 'disabled',
-            'GOOGLE_ENABLED': 'true', 'TRUST_PROXY_TLS': 'true',
+            'YANDEX_ENABLED': 'true', 'GOOGLE_ENABLED': 'false', 'TRUST_PROXY_TLS': 'true',
             'ALLOWED_HOSTS': 'wipster.fedotovs.net', 'CORS_ALLOWED_ORIGINS': ''}
 for key, value in required.items():
     if a.get(key) != value:
         raise SystemExit(f'api.env: unsafe or missing {key}')
-if not re.fullmatch(r'[A-Za-z0-9_-]+\.apps\.googleusercontent\.com', a.get('GOOGLE_CLIENT_ID', '')):
-    raise SystemExit('api.env: owner-supplied Desktop GOOGLE_CLIENT_ID required')
-if any(x in a['GOOGLE_CLIENT_ID'].lower() for x in ('example', 'placeholder', 'test-', 'smoke')):
-    raise SystemExit('api.env: placeholder GOOGLE_CLIENT_ID rejected')
+if not re.fullmatch(r'[a-f0-9]{32}', a.get('YANDEX_CLIENT_ID', '')):
+    raise SystemExit('api.env: owner-supplied 32-character hex YANDEX_CLIENT_ID required')
 if len(a.get('SECRET_KEY', '')) < 64 or a['SECRET_KEY'].startswith(('django-insecure', 'development')):
     raise SystemExit('api.env: strong SECRET_KEY required')
 u = urlsplit(a.get('DATABASE_URL', ''))

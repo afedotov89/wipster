@@ -1,7 +1,7 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { fireEvent, render, screen, waitFor } from '@testing-library/react';
 const { invoke, isTauri, state, refresh } = vi.hoisted(() => ({ invoke: vi.fn(), isTauri: vi.fn(() => true), refresh: vi.fn(), state: {
-  status: { account: null as null | { origin: string; phone?: string; email?: string; name?: string; google_linked?: boolean }, pending: 0, conflict: false, error: null }, busy: false, sync: vi.fn(),
+  status: { account: null as null | { origin: string; phone?: string; email?: string; name?: string; google_linked?: boolean; yandex_linked?: boolean }, pending: 0, conflict: false, error: null }, busy: false, sync: vi.fn(),
 } }));
 vi.mock('@tauri-apps/api/core', () => ({ invoke, isTauri }));
 vi.mock('@/stores/cloudStore', () => ({ useCloudStore: Object.assign(() => state, { getState: () => ({ refresh }) }) }));
@@ -130,5 +130,65 @@ describe('native Google and optional phone account flow', () => {
     expect(screen.getByText(/Browser login is not supported/)).toBeInTheDocument();
     expect(screen.queryByRole('textbox')).not.toBeInTheDocument();
     expect(invoke).not.toHaveBeenCalled();
+  });
+});
+
+
+describe('primary Yandex ID flow', () => {
+  beforeEach(() => {
+    invoke.mockReset(); refresh.mockReset(); isTauri.mockReturnValue(true); localStorage.clear();
+    state.status.account = null; useI18n.getState().setLocale('ru');
+    invoke.mockImplementation(async (command: string) => {
+      if (command === 'cloud_import_preview') return preview;
+      if (command === 'cloud_capabilities') return { yandex: true, google: false, sms: false };
+    });
+  });
+  it('uses Yandex ID primary without phone or frontend OAuth material', async () => {
+    render(<AccountPanel />);
+    fireEvent.click(await screen.findByRole('button', { name: 'Войти с Яндекс ID' }));
+    await waitFor(() => expect(invoke).toHaveBeenCalledWith('cloud_yandex_login', {
+      originUrl: 'https://wipster.fedotovs.net', importLocal: false, link: false,
+    }));
+    expect(screen.queryByLabelText('Телефон')).not.toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: /Google/ })).not.toBeInTheDocument();
+    expect(screen.getByText(/без доступа к письмам/)).toBeInTheDocument();
+    expect(localStorage.getItem('token')).toBeNull();
+  });
+  it('links current Google account to Yandex without switching workspace or importing', async () => {
+    state.status.account = { origin: 'https://old.example.com', email: 'same@example.com', google_linked: true };
+    render(<AccountPanel />);
+    fireEvent.click(await screen.findByRole('button', { name: 'Привязать Яндекс ID' }));
+    await waitFor(() => expect(invoke).toHaveBeenCalledWith('cloud_yandex_login', {
+      originUrl: 'https://old.example.com', importLocal: false, link: true,
+    }));
+    await waitFor(() => expect(refresh).toHaveBeenCalled());
+    expect(screen.getByText('same@example.com')).toBeInTheDocument();
+  });
+  it('cancels pending Yandex and permits retry after localized denial', async () => {
+    const commands = invoke.getMockImplementation()!;
+    let rejectLogin: (message: string) => void = () => {};
+    invoke.mockImplementation((command: string, ...args: unknown[]) => {
+      if (command === 'cloud_yandex_login') return new Promise((_, reject) => { rejectLogin = reject; });
+      if (command === 'cloud_yandex_cancel') { rejectLogin('Yandex sign-in cancelled'); return Promise.resolve(); }
+      return commands(command, ...args);
+    });
+    render(<AccountPanel />);
+    fireEvent.click(await screen.findByRole('button', { name: 'Войти с Яндекс ID' }));
+    expect(await screen.findByText(/Завершите вход в системном браузере/)).toBeInTheDocument();
+    fireEvent.click(screen.getByRole('button', { name: 'Отменить вход' }));
+    expect(await screen.findByText(/Вход через Яндекс ID отменён/)).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'Войти с Яндекс ID' })).toBeEnabled();
+  });
+  it.each([
+    ['Yandex sign-in was declined.', /Вход через Яндекс ID не разрешён/],
+    ['Yandex sign-in timed out.', /Время ожидания Яндекс ID истекло/],
+    ['This Yandex ID belongs to another Wipster account.', /Аккаунты не объединены/],
+  ])('localizes failure and keeps retry available: %s', async (message, expected) => {
+    const commands = invoke.getMockImplementation()!;
+    invoke.mockImplementation((command: string, ...args: unknown[]) => command === 'cloud_yandex_login' ? Promise.reject(message) : commands(command, ...args));
+    render(<AccountPanel />);
+    fireEvent.click(await screen.findByRole('button', { name: 'Войти с Яндекс ID' }));
+    expect(await screen.findByText(expected)).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'Войти с Яндекс ID' })).toBeEnabled();
   });
 });

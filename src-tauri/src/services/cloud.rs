@@ -25,6 +25,8 @@ pub struct Active {
     pub name: String,
     #[serde(default)]
     pub google_linked: bool,
+    #[serde(default)]
+    pub yandex_linked: bool,
     pub credential_id: String,
 }
 #[derive(Default)]
@@ -177,7 +179,7 @@ pub(super) fn api_error(status: u16, body: &Value) -> String {
     let code = body["error"].as_str().unwrap_or("request_failed");
     // Never display arbitrary provider responses, URLs, credentials or request bodies.
     match code {
-        "google_disabled" | "sms_disabled" => {
+        "yandex_disabled" | "google_disabled" | "sms_disabled" => {
             "This sign-in method is disabled on the server.".into()
         }
         "invalid_google_login" | "invalid_google_request" => {
@@ -189,6 +191,15 @@ pub(super) fn api_error(status: u16, body: &Value) -> String {
         "google_identity_in_use" => {
             "This Google account belongs to another Wipster account. No accounts were merged."
                 .into()
+        }
+        "invalid_yandex_login" | "invalid_yandex_request" => {
+            "Yandex sign-in expired or was rejected. Please try again.".into()
+        }
+        "yandex_unavailable" => {
+            "Yandex sign-in is temporarily unavailable. Please try again.".into()
+        }
+        "yandex_identity_in_use" => {
+            "This Yandex ID belongs to another Wipster account. No accounts were merged.".into()
         }
         "rate_limited" => "Too many attempts. Try again later.".into(),
         "invalid_phone" => "Enter a valid phone number in E.164 format (+country code).".into(),
@@ -294,6 +305,7 @@ pub(super) async fn install_session(
         email: b["email"].as_str().unwrap_or_default().to_string(),
         name: b["name"].as_str().unwrap_or_default().to_string(),
         google_linked: b["google_linked"].as_bool().unwrap_or(false),
+        yandex_linked: b["yandex_linked"].as_bool().unwrap_or(false),
         credential_id: uuid::Uuid::new_v4().to_string(),
     };
     uuid::Uuid::parse_str(&a.account_id).map_err(|_| "Invalid account")?;
@@ -353,7 +365,7 @@ pub(super) async fn install_session(
         }
     }
     if cancelled.is_some_and(|c| *c.borrow()) {
-        return Err("Google sign-in cancelled".into());
+        return Err("Sign-in cancelled".into());
     }
     entry(&a)?
         .set_password(credential)
@@ -584,12 +596,13 @@ mod tests {
         let a: Active = serde_json::from_value(old.clone()).unwrap();
         assert_eq!(a.phone.as_deref(), Some("+14155552671"));
         assert!(a.email.is_empty());
-        assert!(!a.google_linked);
+        assert!(!a.google_linked && !a.yandex_linked);
         let queue: Vec<Active> = serde_json::from_value(json!([old])).unwrap();
         assert_eq!(queue.len(), 1);
         let google: Active=serde_json::from_value(json!({"origin":a.origin,"account_id":id,"credential_id":id,"phone":null,"email":"person@example.com"})).unwrap();
         assert!(google.phone.is_none());
         assert_eq!(google.email, "person@example.com");
+        assert!(!google.yandex_linked);
     }
 
     #[test]
@@ -623,6 +636,7 @@ mod tests {
             email: String::new(),
             name: String::new(),
             google_linked: false,
+            yandex_linked: false,
             credential_id: uuid::Uuid::new_v4().to_string(),
         };
         let temporary = uuid::Uuid::new_v4().to_string() + &uuid::Uuid::new_v4().to_string();
@@ -651,7 +665,7 @@ mod tests {
             .await
             .unwrap();
         assert_eq!(s, 200);
-        assert_eq!(caps, json!({"google":true,"sms":false}));
+        assert_eq!(caps, json!({"yandex":false,"google":true,"sms":false}));
         let first = super::super::cloud_google::test_authorize(&o)
             .await
             .unwrap();
@@ -668,6 +682,7 @@ mod tests {
             email: first["email"].as_str().unwrap().into(),
             name: String::new(),
             google_linked: true,
+            yandex_linked: false,
             credential_id: uuid::Uuid::new_v4().to_string(),
         };
         let directory = tempfile::tempdir().unwrap();
@@ -694,6 +709,88 @@ mod tests {
                 .lock()
                 .unwrap()
                 .query_row("SELECT title FROM tasks WHERE id='google-task'", [], |r| {
+                    r.get::<_, String>(0)
+                })
+                .unwrap(),
+            "offline work"
+        );
+        let (s, _) = request(
+            &a.origin,
+            Method::POST,
+            "auth/logout",
+            Some(token1),
+            Some(&json!({})),
+        )
+        .await
+        .unwrap();
+        assert_eq!(s, 200);
+        assert!(synchronize_with_token(&one, &a, token1).await.is_err());
+        assert!(!synchronize_with_token(&two, &a, token2).await.unwrap());
+        let (s, _) = request(
+            &a.origin,
+            Method::POST,
+            "auth/logout",
+            Some(token2),
+            Some(&json!({})),
+        )
+        .await
+        .unwrap();
+        assert_eq!(s, 200);
+    }
+
+    #[tokio::test]
+    #[ignore = "requires isolated DEBUG Yandex provider fixture and WIPSTER_TEST_API"]
+    async fn native_yandex_two_device_sessions_over_http() {
+        let o = std::env::var("WIPSTER_TEST_API").expect("Set test API origin");
+        let (s, caps) = request(&o, Method::GET, "auth/capabilities", None, None)
+            .await
+            .unwrap();
+        assert_eq!(s, 200);
+        assert_eq!(caps, json!({"yandex":true,"google":false,"sms":false}));
+        let subject = uuid::Uuid::new_v4().as_u128().to_string();
+        let first = super::super::cloud_yandex::test_authorize(&o, &subject)
+            .await
+            .unwrap();
+        let second = super::super::cloud_yandex::test_authorize(&o, &subject)
+            .await
+            .unwrap();
+        assert_eq!(first["account_id"], second["account_id"]);
+        assert!(first["phone"].is_null());
+        assert_ne!(first["token"], second["token"]);
+        let a = Active {
+            origin: o,
+            account_id: first["account_id"].as_str().unwrap().into(),
+            phone: None,
+            email: first["email"].as_str().unwrap().into(),
+            name: String::new(),
+            google_linked: false,
+            yandex_linked: true,
+            credential_id: uuid::Uuid::new_v4().to_string(),
+        };
+        let directory = tempfile::tempdir().unwrap();
+        let p1 = directory.path().join("one.db");
+        let p2 = directory.path().join("two.db");
+        let one = DbState::new(open(&p1).unwrap());
+        let two = DbState::new(open(&p2).unwrap());
+        let token1 = first["token"].as_str().unwrap();
+        let token2 = second["token"].as_str().unwrap();
+        one.0
+            .lock()
+            .unwrap()
+            .execute(
+                "INSERT INTO tasks(id,title) VALUES('yandex-task','offline work')",
+                [],
+            )
+            .unwrap();
+        synchronize_with_token(&one, &a, token1).await.unwrap();
+        drop(one);
+        let one = DbState::new(open(&p1).unwrap());
+        assert!(synchronize_with_token(&two, &a, token2).await.unwrap());
+        assert_eq!(
+            two.0
+                .lock()
+                .unwrap()
+                .query_row("SELECT title FROM tasks WHERE id='yandex-task'", [], |r| {
                     r.get::<_, String>(0)
                 })
                 .unwrap(),
@@ -766,6 +863,7 @@ mod tests {
             email: String::new(),
             name: String::new(),
             google_linked: false,
+            yandex_linked: false,
             credential_id: uuid::Uuid::new_v4().to_string(),
         };
         (a, credential)

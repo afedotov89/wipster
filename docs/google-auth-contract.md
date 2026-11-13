@@ -1,3 +1,5 @@
+> Superseded for primary login by [Yandex ID](yandex-auth-contract.md). Historical Google adapter setup is optional and does not block Yandex.
+
 # Google native authentication contract
 
 Selected before implementation, 2026-11-13. Desktop Tauri only; no provisioning/deployment.

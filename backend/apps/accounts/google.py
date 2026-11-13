@@ -29,7 +29,7 @@ def enabled():
 
 
 def capabilities():
-    return {'google': settings.GOOGLE_ENABLED, 'sms': settings.OTP_PROVIDER != 'disabled'}
+    return {'yandex': settings.YANDEX_ENABLED, 'google': settings.GOOGLE_ENABLED, 'sms': settings.OTP_PROVIDER != 'disabled'}
 
 
 def bounded_json(response):

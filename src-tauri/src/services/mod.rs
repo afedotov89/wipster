@@ -19,3 +19,5 @@ pub mod cloud_db;
 pub mod cloud;
 
 pub mod cloud_google;
+
+pub mod cloud_yandex;

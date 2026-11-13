@@ -1,5 +1,6 @@
 name: Cloud and native verification
 on:
+  workflow_call:
   pull_request:
   workflow_dispatch:
 permissions:
@@ -36,6 +37,7 @@ jobs:
       - run: pytest -q backend/tests_cloud
   native-and-frontend:
     runs-on: macos-latest
+    timeout-minutes: 35
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
@@ -96,3 +98,38 @@ jobs:
           done
           curl -fsS http://127.0.0.1:8081/readyz
           cargo test --locked --manifest-path src-tauri/Cargo.toml --lib native_google_two_device_sessions_over_http -- --ignored
+      - name: Native Yandex flow over isolated PostgreSQL and fixture HTTP
+        env:
+          DEBUG: 'true'
+          DEV_OTP_ENABLED: 'true'
+          OTP_PROVIDER: disabled
+          GOOGLE_ENABLED: 'false'
+          YANDEX_ENABLED: 'true'
+          YANDEX_CLIENT_ID: aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa
+          WIPSTER_YANDEX_TEST_PROVIDER: '1'
+          WIPSTER_TEST_API: http://127.0.0.1:18082
+        run: |
+          brew install postgresql@18
+          pg_bin="$(brew --prefix postgresql@18)/bin"
+          pg_dir=$(mktemp -d "$RUNNER_TEMP/wipster-yandex-pg.XXXXXX")
+          "$pg_bin/initdb" -D "$pg_dir/data" -A trust --no-locale > "$pg_dir/init.log"
+          api_pid=
+          cleanup() {
+            if [[ -n $api_pid ]]; then kill "$api_pid" 2>/dev/null || true; wait "$api_pid" 2>/dev/null || true; fi
+            "$pg_bin/pg_ctl" -D "$pg_dir/data" -m fast stop > /dev/null || true
+            rm -rf "$pg_dir"
+          }
+          trap cleanup EXIT
+          "$pg_bin/pg_ctl" -D "$pg_dir/data" -l "$pg_dir/postgres.log" -o "-h 127.0.0.1 -p 55432 -k $pg_dir -c max_connections=30 -c shared_buffers=32MB" -w start
+          "$pg_bin/createdb" -h 127.0.0.1 -p 55432 wipster_yandex_ci
+          DATABASE_URL="postgresql://$(id -un)@127.0.0.1:55432/wipster_yandex_ci"
+          export DATABASE_URL
+          backend/.venv/bin/python backend/manage.py migrate --noinput
+          backend/.venv/bin/gunicorn --chdir backend tests_cloud.yandex_mock_wsgi:application --bind 127.0.0.1:18082 --workers 2 --access-logfile /dev/null --error-logfile /dev/null --capture-output &
+          api_pid=$!
+          for ((attempt=1; attempt<=30; attempt++)); do
+            if curl -fsS "$WIPSTER_TEST_API/readyz" > /dev/null; then break; fi
+            sleep 1
+          done
+          curl -fsS "$WIPSTER_TEST_API/readyz"
+          cargo test --locked --manifest-path src-tauri/Cargo.toml --lib native_yandex_two_device_sessions_over_http -- --ignored

@@ -20,6 +20,9 @@ services:
       SECRET_KEY: "local-development-only-do-not-use-in-production"
       DATABASE_URL: "postgresql://wipster:local-development-only@db:5432/wipster"
       ALLOWED_HOSTS: localhost,127.0.0.1
+      YANDEX_ENABLED: "${YANDEX_ENABLED:-false}"
+      YANDEX_CLIENT_ID: "${YANDEX_CLIENT_ID:-}"
+      YANDEX_CLIENT_SECRET: "${YANDEX_CLIENT_SECRET:-}"
       GOOGLE_ENABLED: "${GOOGLE_ENABLED:-false}"
       GOOGLE_CLIENT_ID: "${GOOGLE_CLIENT_ID:-}"
       GOOGLE_CLIENT_SECRET: "${GOOGLE_CLIENT_SECRET:-}"

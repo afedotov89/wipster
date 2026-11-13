@@ -59,7 +59,7 @@ def signin(subject='google-subject'):
 
 def test_contract_capabilities_pkce_nonce_and_no_frontend_secret():
     client, data, body = begin()
-    assert client.get('/api/v1/auth/capabilities').json() == {'google': True, 'sms': False}
+    assert client.get('/api/v1/auth/capabilities').json() == {'yandex':False,'google': True, 'sms': False}
     assert post(client, 'auth/start', {'phone': '+14155552671'}).json()['error'] == 'sms_disabled'
     attempt = GoogleAttempt.objects.get(pk=data['attempt_id'])
     assert attempt.proof_hash == digest(data['proof']) and attempt.proof_hash != data['proof']
@@ -259,7 +259,7 @@ def test_token_exchange_is_bounded_no_refresh_credentials_and_failures(signing_k
 
 def test_disabled_providers_and_durable_quota():
     with override_settings(GOOGLE_ENABLED=False):
-        assert Client().get('/api/v1/auth/capabilities').json() == {'google':False,'sms':False}
+        assert Client().get('/api/v1/auth/capabilities').json() == {'yandex':False,'google':False,'sms':False}
         assert post(Client(), 'auth/google/start', {}).status_code == 404
         assert post(Client(), 'auth/google/finish', {}).status_code == 404
     for _ in range(20): begin()
