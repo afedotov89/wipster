@@ -1,6 +1,8 @@
-import { useEffect, useState } from "react";
+import { useValueDraft } from "@/hooks/useValueDraft";
 import {
   Box,
+  Alert,
+  Button,
   IconButton,
   MenuItem,
   Switch,
@@ -27,7 +29,7 @@ interface Props {
   value: unknown;
   /** The task fills the window: text has room to be read, not just stored. */
   expanded?: boolean;
-  onChange: (value: unknown) => void;
+  onChange: (value: unknown, expected: unknown) => Promise<{ applied: boolean; value: unknown }>;
 }
 
 /**
@@ -42,194 +44,207 @@ export default function CustomFieldEditor({ field, value, expanded, onChange }: 
   const { t } = useI18n();
   const label = field.label ?? field.key;
 
-  // Text-ish editors keep a local draft so typing is not a round trip per key.
-  const [draft, setDraft] = useState(asText(value));
-  useEffect(() => setDraft(asText(value)), [value, field.id]);
+  const buffer = useValueDraft(value, onChange);
+  const draft = asText(buffer.value);
+  const setDraft = buffer.change;
+  const send = (next: unknown) => { buffer.change(next); void buffer.commit(next); };
+  const renderEditor = () => {
+    switch (field.kind) {
+      case "markdown":
+        return (
+          <FieldFrame label={label}>
+            <MarkdownFieldEditor
+              value={asText(buffer.value)}
+              expanded={expanded}
+              onChange={send}
+              onDraftChange={buffer.change}
+              onCancel={buffer.discard}
+            />
+          </FieldFrame>
+        );
 
-  switch (field.kind) {
-    case "markdown":
-      return (
-        <FieldFrame label={label}>
-          <MarkdownFieldEditor
-            value={asText(value)}
-            expanded={expanded}
-            onChange={(next) => onChange(next)}
-          />
-        </FieldFrame>
-      );
-
-    case "long_text":
-      return (
-        <FieldFrame label={label}>
-          <TextField
-            fullWidth
-            size="small"
-            multiline
-            minRows={expanded ? 6 : 3}
-            maxRows={expanded ? 30 : 16}
-            value={draft}
-            onChange={(e) => setDraft(e.target.value)}
-            onBlur={() => draft !== asText(value) && onChange(draft)}
-            sx={{ "& .MuiInputBase-input": { fontSize: 13 } }}
-          />
-        </FieldFrame>
-      );
-
-    case "number":
-      return (
-        <FieldFrame label={label}>
-          <TextField
-            size="small"
-            value={draft}
-            // No spinner arrows: they are a browser artefact, and this is an app.
-            inputProps={{ inputMode: "decimal", style: { fontSize: 13 } }}
-            onChange={(e) => setDraft(e.target.value.replace(/[^\d.,-]/g, ""))}
-            onBlur={() => {
-              const text = draft.trim().replace(",", ".");
-              if (text === "") return onChange(null);
-              const parsed = Number(text);
-              if (!Number.isNaN(parsed)) onChange(parsed);
-              else setDraft(asText(value));
-            }}
-            sx={{ width: 160 }}
-          />
-        </FieldFrame>
-      );
-
-    case "date":
-      return (
-        <FieldFrame label={label}>
-          <TextField
-            size="small"
-            type="date"
-            value={asText(value)}
-            onChange={(e) => onChange(e.target.value || null)}
-            inputProps={{ style: { fontSize: 13 } }}
-            sx={{ width: 190 }}
-          />
-        </FieldFrame>
-      );
-
-    case "checkbox":
-      return (
-        <FieldFrame label={label}>
-          <Switch
-            size="small"
-            checked={value === true}
-            onChange={(e) => onChange(e.target.checked)}
-          />
-        </FieldFrame>
-      );
-
-    case "select": {
-      const selected = asText(value);
-      // Up to four choices fit as buttons, which is one click instead of two;
-      // more than that becomes a menu rather than a wall.
-      return (
-        <FieldFrame label={label}>
-          {field.options.length <= 4 ? (
-            <ToggleButtonGroup
-              exclusive
-              size="small"
-              value={selected || null}
-              onChange={(_e, next) => onChange(next)}
-              sx={{ display: "flex" }}
-            >
-              {field.options.map((option) => (
-                <ToggleButton key={option} value={option} sx={{ flex: 1, fontSize: 11, py: 0.5 }}>
-                  {option}
-                </ToggleButton>
-              ))}
-            </ToggleButtonGroup>
-          ) : (
+      case "long_text":
+        return (
+          <FieldFrame label={label}>
             <TextField
-              select
               fullWidth
               size="small"
-              value={selected}
-              onChange={(e) => onChange(e.target.value || null)}
+              multiline
+              minRows={expanded ? 6 : 3}
+              maxRows={expanded ? 30 : 16}
+              value={draft}
+              onChange={(e) => setDraft(e.target.value)}
+              onBlur={() => void buffer.commit(draft)}
               sx={{ "& .MuiInputBase-input": { fontSize: 13 } }}
-            >
-              <MenuItem value="" sx={{ fontSize: 13 }}>
-                <em>{t.none}</em>
-              </MenuItem>
-              {field.options.map((option) => (
-                <MenuItem key={option} value={option} sx={{ fontSize: 13 }}>
-                  {option}
-                </MenuItem>
-              ))}
-            </TextField>
-          )}
-        </FieldFrame>
-      );
-    }
+            />
+          </FieldFrame>
+        );
 
-    case "url":
-      return (
-        <FieldFrame label={label}>
-          <Box sx={{ display: "flex", gap: 0.5, alignItems: "center" }}>
+      case "number":
+        return (
+          <FieldFrame label={label}>
+            <TextField
+              size="small"
+              value={draft}
+              // No spinner arrows: they are a browser artefact, and this is an app.
+              inputProps={{ inputMode: "decimal", style: { fontSize: 13 } }}
+              onChange={(e) => setDraft(e.target.value.replace(/[^\d.,-]/g, ""))}
+              onBlur={() => {
+                const text = draft.trim().replace(",", ".");
+                if (text === "") return send(null);
+                const parsed = Number(text);
+                if (!Number.isNaN(parsed)) send(parsed);
+                else buffer.discard();
+              }}
+              sx={{ width: 160 }}
+            />
+          </FieldFrame>
+        );
+
+      case "date":
+        return (
+          <FieldFrame label={label}>
+            <TextField
+              size="small"
+              type="date"
+              value={asText(buffer.value)}
+              onChange={(e) => send(e.target.value || null)}
+              inputProps={{ style: { fontSize: 13 } }}
+              sx={{ width: 190 }}
+            />
+          </FieldFrame>
+        );
+
+      case "checkbox":
+        return (
+          <FieldFrame label={label}>
+            <Switch
+              size="small"
+              checked={buffer.value === true}
+              onChange={(e) => send(e.target.checked)}
+            />
+          </FieldFrame>
+        );
+
+      case "select": {
+        const selected = asText(buffer.value);
+        // Up to four choices fit as buttons, which is one click instead of two;
+        // more than that becomes a menu rather than a wall.
+        return (
+          <FieldFrame label={label}>
+            {field.options.length <= 4 ? (
+              <ToggleButtonGroup
+                exclusive
+                size="small"
+                value={selected || null}
+                onChange={(_e, next) => send(next)}
+                sx={{ display: "flex" }}
+              >
+                {field.options.map((option) => (
+                  <ToggleButton key={option} value={option} sx={{ flex: 1, fontSize: 11, py: 0.5 }}>
+                    {option}
+                  </ToggleButton>
+                ))}
+              </ToggleButtonGroup>
+            ) : (
+              <TextField
+                select
+                fullWidth
+                size="small"
+                value={selected}
+                onChange={(e) => send(e.target.value || null)}
+                sx={{ "& .MuiInputBase-input": { fontSize: 13 } }}
+              >
+                <MenuItem value="" sx={{ fontSize: 13 }}>
+                  <em>{t.none}</em>
+                </MenuItem>
+                {field.options.map((option) => (
+                  <MenuItem key={option} value={option} sx={{ fontSize: 13 }}>
+                    {option}
+                  </MenuItem>
+                ))}
+              </TextField>
+            )}
+          </FieldFrame>
+        );
+      }
+
+      case "url":
+        return (
+          <FieldFrame label={label}>
+            <Box sx={{ display: "flex", gap: 0.5, alignItems: "center" }}>
+              <TextField
+                fullWidth
+                size="small"
+                value={draft}
+                placeholder="https://"
+                onChange={(e) => setDraft(e.target.value)}
+                onBlur={() => void buffer.commit(draft || null)}
+                sx={{ "& .MuiInputBase-input": { fontSize: 13 } }}
+              />
+              {draft && (
+                <Tooltip title={t.openLink}>
+                  <IconButton
+                    size="small"
+                    sx={{ flexShrink: 0, opacity: 0.5 }}
+                    onClick={() => void openTarget(draft)}
+                  >
+                    <LaunchIcon sx={{ fontSize: 14 }} />
+                  </IconButton>
+                </Tooltip>
+              )}
+            </Box>
+          </FieldFrame>
+        );
+
+      case "url_list":
+        return (
+          <FieldFrame label={label}>
+            <ListFieldEditor
+              items={asList(buffer.value)}
+              onChange={send}
+              links
+              placeholder={t.addLink}
+            />
+          </FieldFrame>
+        );
+
+      case "text_list":
+        return (
+          <FieldFrame label={label}>
+            <ListFieldEditor items={asList(buffer.value)} onChange={send} placeholder={t.addLine} />
+          </FieldFrame>
+        );
+
+      case "file_list":
+        return (
+          <FieldFrame label={label}>
+            <FileListEditor id={field.id} paths={asList(buffer.value)} onChange={send} />
+          </FieldFrame>
+        );
+
+      default:
+        return (
+          <FieldFrame label={label}>
             <TextField
               fullWidth
               size="small"
               value={draft}
-              placeholder="https://"
               onChange={(e) => setDraft(e.target.value)}
-              onBlur={() => draft !== asText(value) && onChange(draft || null)}
+              onBlur={() => void buffer.commit(draft || null)}
               sx={{ "& .MuiInputBase-input": { fontSize: 13 } }}
             />
-            {draft && (
-              <Tooltip title={t.openLink}>
-                <IconButton
-                  size="small"
-                  sx={{ flexShrink: 0, opacity: 0.5 }}
-                  onClick={() => void openTarget(draft)}
-                >
-                  <LaunchIcon sx={{ fontSize: 14 }} />
-                </IconButton>
-              </Tooltip>
-            )}
-          </Box>
-        </FieldFrame>
-      );
+          </FieldFrame>
+        );
+    }
+  };
+  return <Box>
+    {buffer.conflict && <Alert severity="warning">
+      {field.label ?? field.key}: {t.draftConflict} — {String(value ?? '').slice(0, 180)}
+      <Button onMouseDown={e => e.preventDefault()} onClick={buffer.discard}>{t.draftUseUpdated}</Button>
+      <Button onMouseDown={e => e.preventDefault()} onClick={() => void buffer.commit(buffer.value, true)}>{t.draftKeepMine}</Button>
+    </Alert>}
+    {renderEditor()}
+  </Box>;
 
-    case "url_list":
-      return (
-        <FieldFrame label={label}>
-          <ListFieldEditor
-            items={asList(value)}
-            onChange={onChange}
-            links
-            placeholder={t.addLink}
-          />
-        </FieldFrame>
-      );
-
-    case "text_list":
-      return (
-        <FieldFrame label={label}>
-          <ListFieldEditor items={asList(value)} onChange={onChange} placeholder={t.addLine} />
-        </FieldFrame>
-      );
-
-    case "file_list":
-      return (
-        <FieldFrame label={label}>
-          <FileListEditor id={field.id} paths={asList(value)} onChange={onChange} />
-        </FieldFrame>
-      );
-
-    default:
-      return (
-        <FieldFrame label={label}>
-          <TextField
-            fullWidth
-            size="small"
-            value={draft}
-            onChange={(e) => setDraft(e.target.value)}
-            onBlur={() => draft !== asText(value) && onChange(draft || null)}
-            sx={{ "& .MuiInputBase-input": { fontSize: 13 } }}
-          />
-        </FieldFrame>
-      );
-  }
 }

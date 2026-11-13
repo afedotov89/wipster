@@ -102,3 +102,17 @@ pub fn set_task_field_value(
     let conn = db.0.lock().map_err(|e| e.to_string())?;
     task_fields::set_value(&conn, &task_id, &field_id, &value)
 }
+
+
+/// Field-level compare-and-set shares the same mutex as incoming sync and AI.
+#[tauri::command]
+pub fn save_custom_field_draft(
+    db: State<'_, DbState>,
+    task_id: String,
+    field_id: String,
+    expected: serde_json::Value,
+    value: serde_json::Value,
+) -> Result<serde_json::Value, String> {
+    let conn = db.0.lock().map_err(|e| e.to_string())?;
+    task_fields::set_value_if_current(&conn, &task_id, &field_id, &expected, &value)
+}

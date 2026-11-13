@@ -25,6 +25,8 @@ import {
   InputLabel,
   CircularProgress,
   Autocomplete,
+  Alert,
+  Button,
 } from "@mui/material";
 import CloseIcon from "@mui/icons-material/Close";
 import OpenInFullIcon from "@mui/icons-material/OpenInFull";
@@ -39,10 +41,10 @@ import { useProjectStore } from "@/stores/projectStore";
 import { useHistoryStore } from "@/stores/historyStore";
 import { statusLabel, priorityLabel, PRIORITIES } from "@/utils/constants";
 import { useI18n } from "@/i18n";
+import { useTaskDrafts, DRAFT_FIELDS, type DraftField } from "@/hooks/useTaskDrafts";
 import { useAiAutocomplete } from "@/hooks/useAiAutocomplete";
 import { getPromisedToOptions, getEstimateOptions } from "@/utils/tauri";
 import * as api from "@/utils/tauri";
-import { appLog } from "@/stores/logStore";
 import { useTaskFieldStore } from "@/stores/taskFieldStore";
 import CustomFieldEditor from "@/components/task/fields/CustomFieldEditor";
 import { useAiFillStore } from "@/stores/aiFillStore";
@@ -121,19 +123,21 @@ function AiTextField({ label, fieldName, value, onChange, onBlur, multiline, min
   );
 }
 
-function SortableStep({ id, item, index, isNext, onToggle, onRemove, onEditText }: {
+function SortableStep({ id, item, index, isNext, onToggle, onRemove, onDraftText, onCommitText }: {
   id: string;
   item: ChecklistItem;
   index: number;
   isNext: boolean;
   onToggle: (i: number) => void;
   onRemove: (i: number) => void;
-  onEditText: (i: number, text: string) => void;
+  onDraftText: (i: number, text: string) => void;
+  onCommitText: () => void;
 }) {
   const { attributes, listeners, setNodeRef, transform, transition, isDragging } = useSortable({ id });
   const [editing, setEditing] = useState(false);
   const [editText, setEditText] = useState(item.text);
   const inputRef = useRef<HTMLInputElement>(null);
+  const editBase = useRef(item.text);
 
   const style = {
     transform: CSS.Transform.toString(transform),
@@ -143,11 +147,8 @@ function SortableStep({ id, item, index, isNext, onToggle, onRemove, onEditText 
 
   const commitEdit = () => {
     setEditing(false);
-    if (editText.trim() && editText.trim() !== item.text) {
-      onEditText(index, editText.trim());
-    } else {
-      setEditText(item.text);
-    }
+    onDraftText(index, editText.trim() || editBase.current);
+    onCommitText();
   };
 
   return (
@@ -182,17 +183,17 @@ function SortableStep({ id, item, index, isNext, onToggle, onRemove, onEditText 
           size="small"
           variant="standard"
           value={editText}
-          onChange={(e) => setEditText(e.target.value)}
+          onChange={(e) => { setEditText(e.target.value); onDraftText(index, e.target.value); }}
           onBlur={commitEdit}
           onKeyDown={(e) => {
             if (e.key === "Enter") commitEdit();
-            if (e.key === "Escape") { setEditText(item.text); setEditing(false); }
+            if (e.key === "Escape") { setEditText(editBase.current); onDraftText(index, editBase.current); setEditing(false); }
           }}
           InputProps={{ sx: { fontSize: 13 } }}
         />
       ) : (
         <Typography
-          onDoubleClick={() => { setEditing(true); setEditText(item.text); }}
+          onDoubleClick={() => { editBase.current = item.text; setEditing(true); setEditText(item.text); }}
           sx={{
             flex: 1,
             fontSize: 13,
@@ -214,16 +215,22 @@ function SortableStep({ id, item, index, isNext, onToggle, onRemove, onEditText 
   );
 }
 
-function ChecklistSortable({ items, onReorder, onToggle, onRemove, onEditText }: {
+function ChecklistSortable({ items, onReorder, onToggle, onRemove, onDraftText, onCommitText }: {
   items: ChecklistItem[];
   onReorder: (items: ChecklistItem[]) => void;
   onToggle: (i: number) => void;
   onRemove: (i: number) => void;
-  onEditText: (i: number, text: string) => void;
+  onDraftText: (i: number, text: string) => void;
+  onCommitText: () => void;
 }) {
   const sensors = useSensors(useSensor(PointerSensor, { activationConstraint: { distance: 5 } }));
-  // Use text hash as stable ID so reorder doesn't confuse DnD
-  const ids = items.map((item, i) => `${i}-${item.text.slice(0, 20)}`);
+  // Ephemeral row identities survive typing and local drag/reorder. They are
+  // independent of mutable text and do not change the persisted checklist.
+  const rowIds = useRef<string[]>([]);
+  const sequence = useRef(0);
+  while (rowIds.current.length < items.length) rowIds.current.push(`step-${sequence.current++}`);
+  rowIds.current.length = items.length;
+  const ids = rowIds.current;
   const nextIdx = items.findIndex((i) => !i.done);
 
   const handleDragEnd = (event: DragEndEvent) => {
@@ -232,6 +239,7 @@ function ChecklistSortable({ items, onReorder, onToggle, onRemove, onEditText }:
     const oldIndex = ids.indexOf(active.id as string);
     const newIndex = ids.indexOf(over.id as string);
     if (oldIndex !== -1 && newIndex !== -1) {
+      rowIds.current = arrayMove(ids, oldIndex, newIndex);
       onReorder(arrayMove(items, oldIndex, newIndex));
     }
   };
@@ -248,8 +256,9 @@ function ChecklistSortable({ items, onReorder, onToggle, onRemove, onEditText }:
               index={i}
               isNext={i === nextIdx}
               onToggle={onToggle}
-              onRemove={onRemove}
-              onEditText={onEditText}
+              onRemove={(index) => { rowIds.current.splice(index, 1); onRemove(index); }}
+              onDraftText={onDraftText}
+              onCommitText={onCommitText}
             />
           ))}
         </Box>
@@ -283,18 +292,33 @@ export default function TaskDetailPanel() {
   const { refresh } = useHistoryStore();
   const { t, locale } = useI18n();
 
-  const task = findTask(selectedTaskId);
+  const storedTask = findTask(selectedTaskId);
+  const previousTask = useRef(storedTask);
+  if (storedTask || previousTask.current?.id !== selectedTaskId) previousTask.current = storedTask;
+  // Remote deletion cannot discard text that has not reached SQLite yet.
+  const task = storedTask ?? previousTask.current;
+  const deletedWhileOpen = !!task && !storedTask;
 
-  const [title, setTitle] = useState("");
-  const [dod, setDod] = useState("");
-  const [due, setDue] = useState("");
-  const [timeEstimate, setTimeEstimate] = useState("");
-  const [promisedTo, setPromisedTo] = useState("");
-  const [comment, setComment] = useState("");
-  const [trackerUrl, setTrackerUrl] = useState("");
+  const drafts = useTaskDrafts(task);
+  const title = drafts.value("title");
+  const setTitle = (v: string) => drafts.change("title", v);
+  const dod = drafts.value("dod");
+  const setDod = (v: string) => drafts.change("dod", v);
+  const due = drafts.value("due");
+  const setDue = (v: string) => drafts.change("due", v);
+  const timeEstimate = drafts.value("time_estimate");
+  const setTimeEstimate = (v: string) => drafts.change("time_estimate", v);
+  const promisedTo = drafts.value("promised_to");
+  const setPromisedTo = (v: string) => drafts.change("promised_to", v);
+  const comment = drafts.value("comment");
+  const setComment = (v: string) => drafts.change("comment", v);
+  const trackerUrl = drafts.value("tracker_url");
+  const setTrackerUrl = (v: string) => drafts.change("tracker_url", v);
   const [promisedToOptions, setPromisedToOptions] = useState<string[]>([]);
   const [estimateOptions, setEstimateOptions] = useState<string[]>([]);
-  const [checklist, setChecklist] = useState<ChecklistItem[]>([]);
+  let checklist: ChecklistItem[] = [];
+  try { checklist = JSON.parse(drafts.value('checklist') || '[]'); } catch { /* legacy malformed value */ }
+  const setChecklist = (items: ChecklistItem[]) => drafts.change('checklist', JSON.stringify(items));
   const [newStep, setNewStep] = useState("");
 
   // Whether the assistant is working on *this* task. A fill outlives the panel
@@ -319,26 +343,13 @@ export default function TaskDetailPanel() {
     dismiss: aiDismiss,
   } = useAiAutocomplete(selectedTaskId);
 
+  useEffect(() => { aiDismiss(); }, [task?.id, aiDismiss]);
   useEffect(() => {
-    if (task) {
-      setTitle(task.title);
-      setDod(task.dod ?? "");
-      setDue(task.due ?? "");
-      setTimeEstimate(task.time_estimate ?? "");
-      setPromisedTo(task.promised_to ?? "");
-      setComment(task.comment ?? "");
-      setTrackerUrl(task.tracker_url ?? "");
-      let items: ChecklistItem[] = [];
-      try { items = JSON.parse(task.checklist || "[]"); } catch { /* */ }
-      // Migrate legacy next_step into checklist
-      if (items.length === 0 && task.next_step) {
-        items = [{ text: task.next_step, done: false }];
-        update(task.id, { checklist: JSON.stringify(items), next_step: "" });
-      }
-      setChecklist(items);
-      aiDismiss();
-    }
-  }, [task, aiDismiss]);
+    if (!task?.next_step) return;
+    let items: ChecklistItem[] = [];
+    try { items = JSON.parse(task.checklist || '[]'); } catch { /* legacy */ }
+    if (!items.length) void update(task.id, { checklist: JSON.stringify([{ text: task.next_step, done: false }]), next_step: '' });
+  }, [task?.id, task?.next_step, task?.checklist, update]);
 
   useEffect(() => {
     getPromisedToOptions().then(setPromisedToOptions).catch(() => {});
@@ -386,26 +397,34 @@ export default function TaskDetailPanel() {
   useEffect(() => {
     if (!selectedTaskId) return;
     let cancelled = false;
-    api
+    const loadValues = () => { api
       .taskFieldValues(selectedTaskId)
       .then((values) => {
         if (!cancelled) setCustomValues(values);
       })
       .catch(() => {
         if (!cancelled) setCustomValues({});
-      });
+      }); };
+    loadValues();
+    window.addEventListener('wipster-cloud-change', loadValues);
     return () => {
       cancelled = true;
+      window.removeEventListener('wipster-cloud-change', loadValues);
     };
   }, [selectedTaskId]);
 
   const save = useCallback(
     async (field: string, value: string | null) => {
       if (!selectedTaskId) return;
-      await update(selectedTaskId, { [field]: value });
+      if ((DRAFT_FIELDS as readonly string[]).includes(field)) {
+        drafts.change(field as DraftField, value ?? '');
+        await drafts.commit(field as DraftField);
+      } else {
+        await update(selectedTaskId, { [field]: value });
+      }
       await refresh();
     },
-    [selectedTaskId, update, refresh]
+    [selectedTaskId, update, refresh, drafts.change, drafts.commit]
   );
 
   const saveChecklist = useCallback(
@@ -668,10 +687,11 @@ export default function TaskDetailPanel() {
               onReorder={(items) => saveChecklist(items)}
               onToggle={toggleStep}
               onRemove={removeStep}
-              onEditText={(index, text) => {
+              onDraftText={(index, text) => {
                 const updated = checklist.map((item, i) => i === index ? { ...item, text } : item);
-                saveChecklist(updated);
+                setChecklist(updated);
               }}
+              onCommitText={() => void drafts.commit("checklist")}
             />
           )}
           <Box sx={{ mt: 1, position: "relative" }}>
@@ -776,10 +796,11 @@ export default function TaskDetailPanel() {
         builtinField(field.key)
       ) : (
         <CustomFieldEditor
+          key={`${task.id}:${field.id}`}
           field={field}
           value={customValues[field.id]}
           expanded={expanded}
-          onChange={(value) => saveCustomValue(field.id, value)}
+          onChange={(value, expected) => saveCustomValue(field.id, value, expected)}
         />
       )}
     </Fragment>
@@ -792,16 +813,12 @@ export default function TaskDetailPanel() {
    * ordinary edits, and waiting for a round trip to see your own text is how an
    * app feels slow.
    */
-  const saveCustomValue = async (fieldId: string, value: unknown) => {
-    if (!task) return;
-    setCustomValues((current) => ({ ...current, [fieldId]: value }));
-    try {
-      await api.setTaskFieldValue(task.id, fieldId, value ?? null);
-    } catch (e) {
-      appLog.error(`[task-fields] ${String(e)}`);
-      // Put back whatever the database actually has.
-      await api.taskFieldValues(task.id).then(setCustomValues).catch(() => {});
+  const saveCustomValue = async (fieldId: string, value: unknown, expected: unknown) => {
+    const result = await api.saveCustomFieldDraft(task.id, fieldId, expected, value);
+    if (useUiStore.getState().selectedTaskId === task.id) {
+      setCustomValues(current => ({ ...current, [fieldId]: result.value }));
     }
+    return result;
   };
 
   return (
@@ -907,6 +924,13 @@ export default function TaskDetailPanel() {
         }}
       >
 
+        {deletedWhileOpen && <Alert severity="warning">{locale === 'ru' ? 'Задача удалена. Черновики остаются в открытом редакторе; сохранение в удалённую задачу заблокировано.' : 'This task was deleted. Drafts remain in the open editor; saving to the deleted task is blocked.'}</Alert>}
+        {drafts.conflicts.map(field => <Alert key={field} severity="warning">
+          {{ title: locale === 'ru' ? 'Название' : 'Title', dod: t.definitionOfDone, due: t.dueDate, time_estimate: t.estimate, promised_to: t.promisedTo, comment: t.comment, tracker_url: t.trackerUrl, checklist: t.steps }[field]}: {t.draftConflict}
+          <Typography variant="body2">{locale === 'ru' ? 'Текущее значение: ' : 'Current value: '}{(task[field] ?? '').slice(0, 180)}</Typography>
+          <Button onMouseDown={e => e.preventDefault()} onClick={() => drafts.discard(field)}>{locale === 'ru' ? 'Использовать обновление' : 'Use updated value'}</Button>
+          <Button onMouseDown={e => e.preventDefault()} onClick={() => void drafts.commit(field, true)}>{locale === 'ru' ? 'Сохранить мой черновик' : 'Save my draft'}</Button>
+        </Alert>)}
         <TextField
           fullWidth
           variant="standard"

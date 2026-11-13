@@ -20,6 +20,10 @@ pub fn run() {
         .setup(|app| {
             let db = db::connection::init_db(app.handle())?;
             app.manage(DbState::new(db));
+            app.manage(services::cloud_google::GoogleState::default());
+            app.manage(services::cloud::CloudState(tokio::sync::Mutex::new(services::cloud::Runtime {
+                active: services::cloud::load(app.handle())?, ..Default::default()
+            })));
 
             // Tools that act on the interface need a window to talk to.
             services::ui_bridge::attach(app.handle().clone());
@@ -31,6 +35,16 @@ pub fn run() {
             Ok(())
         })
         .invoke_handler(tauri::generate_handler![
+            services::cloud_google::cloud_capabilities,
+            services::cloud_google::cloud_google_login,
+            services::cloud_google::cloud_google_cancel,
+            services::cloud::cloud_import_preview,
+            services::cloud::cloud_start,
+            services::cloud::cloud_login,
+            services::cloud::cloud_status,
+            services::cloud::cloud_sync,
+            services::cloud::cloud_resolve,
+            services::cloud::cloud_logout,
             commands::project_commands::list_projects,
             commands::project_commands::create_project,
             commands::project_commands::update_project,
@@ -40,6 +54,7 @@ pub fn run() {
             commands::task_commands::create_task,
             commands::task_commands::get_task,
             commands::task_commands::update_task,
+            commands::task_commands::save_task_draft,
             commands::task_commands::delete_task,
             commands::task_commands::move_task,
             commands::task_commands::get_doing_tasks,
@@ -77,6 +92,7 @@ pub fn run() {
             commands::task_field_commands::restore_task_field,
             commands::task_field_commands::task_field_values,
             commands::task_field_commands::set_task_field_value,
+            commands::task_field_commands::save_custom_field_draft,
             commands::autocomplete_commands::ai_autocomplete,
             commands::ai_fill_commands::ai_fill_task,
             commands::chat_commands::create_chat_session,

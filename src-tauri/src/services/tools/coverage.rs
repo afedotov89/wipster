@@ -20,6 +20,17 @@ use Coverage::{Tool, Withheld};
 
 #[allow(dead_code)] // the contract itself; the tests are its only reader
 pub const COMMANDS: &[(&str, Coverage)] = &[
+    // --- Cloud account: credentials and destructive workspace decisions belong to the user.
+    ("cloud_capabilities", Withheld("cloud account authentication belongs to the user")),
+    ("cloud_google_login", Withheld("cloud account authentication belongs to the user")),
+    ("cloud_google_cancel", Withheld("cloud account authentication belongs to the user")),
+    ("cloud_import_preview", Withheld("review of a private workspace import belongs to the user")),
+    ("cloud_start", Withheld("cloud account authentication, session or explicit conflict decision")),
+    ("cloud_login", Withheld("cloud account authentication, session or explicit conflict decision")),
+    ("cloud_status", Withheld("cloud account authentication, session or explicit conflict decision")),
+    ("cloud_sync", Withheld("cloud account authentication, session or explicit conflict decision")),
+    ("cloud_resolve", Withheld("cloud account authentication, session or explicit conflict decision")),
+    ("cloud_logout", Withheld("cloud account authentication, session or explicit conflict decision")),
     // --- Projects
     ("list_projects", Tool("list_projects")),
     ("create_project", Tool("create_project")),
@@ -30,6 +41,7 @@ pub const COMMANDS: &[(&str, Coverage)] = &[
     ("list_tasks", Tool("list_tasks")),
     ("create_task", Tool("create_task")),
     ("get_task", Tool("get_task")),
+    ("save_task_draft", Withheld("atomic editor draft comparison; the assistant uses update_task")),
     ("update_task", Tool("update_task")),
     ("delete_task", Tool("delete_task")),
     ("move_task", Tool("move_task")),
@@ -68,6 +80,7 @@ pub const COMMANDS: &[(&str, Coverage)] = &[
     ("remove_task_field", Tool("remove_task_field")),
     ("restore_task_field", Tool("update_task_field")),
     ("task_field_values", Tool("get_task")),
+    ("save_custom_field_draft", Withheld("atomic editor draft comparison; the assistant uses set_task_field_value")),
     ("set_task_field_value", Tool("set_task_field")),
     ("get_backend_logs", Withheld("diagnostics for the log view")),
     // --- The assistant itself

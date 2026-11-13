@@ -27,3 +27,10 @@ src-tauri/target/
 .vscode/
 *.swp
 *.swo
+
+# Cloud development
+.env
+.env.local
+backend/.env
+*.sqlite3
+.pytest_cache/

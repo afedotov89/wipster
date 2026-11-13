@@ -8,6 +8,7 @@ import TerminalIcon from "@mui/icons-material/Terminal";
 import ViewListOutlinedIcon from "@mui/icons-material/ViewListOutlined";
 import InfoOutlinedIcon from "@mui/icons-material/InfoOutlined";
 import type { Translations } from "@/i18n";
+import AccountPanel from "./AccountPanel";
 import GeneralPanel from "./GeneralPanel";
 import AppearancePanel from "./AppearancePanel";
 import AssistantPanel from "./AssistantPanel";
@@ -33,6 +34,7 @@ export interface SettingsSection {
  */
 export const SETTINGS_SECTIONS = [
   { id: "general", Icon: TuneIcon, title: (t) => t.settingsGeneral, Panel: GeneralPanel },
+  { id: "account", Icon: HubOutlinedIcon, title: (t) => t.settingsAccount, Panel: AccountPanel },
   { id: "appearance", Icon: PaletteOutlinedIcon, title: (t) => t.settingsAppearance, Panel: AppearancePanel },
   { id: "fields", Icon: ViewListOutlinedIcon, title: (t) => t.taskFields, Panel: FieldsPanel },
   { id: "assistant", Icon: AutoAwesomeIcon, title: (t) => t.aiConnector, Panel: AssistantPanel },

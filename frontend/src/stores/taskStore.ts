@@ -19,6 +19,7 @@ interface TaskState {
   loadArchived: () => Promise<void>;
   add: (title: string, projectId?: string) => Promise<Task>;
   update: (id: string, input: Partial<Task>) => Promise<Task>;
+  updateIfCurrent: (id: string, field: string, expected: string | null, value: string | null) => Promise<{ applied: boolean; task: Task }>;
   remove: (id: string) => Promise<void>;
   setArchived: (id: string, archived: boolean) => Promise<void>;
   move: (taskId: string, newStatus: TaskStatus, swapTaskId?: string) => Promise<MoveTaskResult>;
@@ -87,6 +88,16 @@ export const useTaskStore = create<TaskState>((set, get) => ({
       archivedTasks: s.archivedTasks.map((t) => (t.id === id ? updated : t)),
     }));
     return updated;
+  },
+
+  updateIfCurrent: async (id, field, expected, value) => {
+    const result = await api.saveTaskDraft(id, field, expected, value);
+    set(s => ({
+      tasks: s.tasks.map(t => t.id === id ? result.task : t),
+      doingTasks: s.doingTasks.map(t => t.id === id ? result.task : t),
+      archivedTasks: s.archivedTasks.map(t => t.id === id ? result.task : t),
+    }));
+    return result;
   },
 
   remove: async (id) => {

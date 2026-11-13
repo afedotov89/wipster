@@ -1,0 +1,40 @@
+name: wipster-cloud
+services:
+  db:
+    image: postgres:18
+    environment:
+      POSTGRES_DB: wipster
+      POSTGRES_USER: wipster
+      POSTGRES_PASSWORD: local-development-only
+    ports: ["127.0.0.1:54329:5432"]
+    volumes: ["postgres_data:/var/lib/postgresql"]
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U wipster -d wipster"]
+      interval: 2s
+      timeout: 3s
+      retries: 20
+  api:
+    build: ./backend
+    environment:
+      DEBUG: "true"
+      SECRET_KEY: "local-development-only-do-not-use-in-production"
+      DATABASE_URL: "postgresql://wipster:local-development-only@db:5432/wipster"
+      ALLOWED_HOSTS: localhost,127.0.0.1
+      GOOGLE_ENABLED: "${GOOGLE_ENABLED:-false}"
+      GOOGLE_CLIENT_ID: "${GOOGLE_CLIENT_ID:-}"
+      GOOGLE_CLIENT_SECRET: "${GOOGLE_CLIENT_SECRET:-}"
+      OTP_PROVIDER: "${OTP_PROVIDER:-disabled}"
+      DEV_OTP_ENABLED: "${DEV_OTP_ENABLED:-false}"
+    ports: ["127.0.0.1:8080:8080"]
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8080/readyz', timeout=2)"]
+      interval: 2s
+      timeout: 3s
+      retries: 20
+      start_period: 5s
+    depends_on:
+      db:
+        condition: service_healthy
+    command: ["gunicorn", "project.wsgi:application", "--bind", "0.0.0.0:8080", "--workers", "2", "--timeout", "60"]
+volumes:
+  postgres_data:

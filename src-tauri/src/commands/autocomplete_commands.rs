@@ -11,6 +11,7 @@ pub async fn ai_autocomplete(
     field_name: String,
     current_value: String,
 ) -> Result<String, String> {
+    let _workspace_lease = db.1.read().await;
     let (cfg, system_prompt_base, tracker_creds, task) = {
         let conn = db.0.lock().map_err(|e| e.to_string())?;
 

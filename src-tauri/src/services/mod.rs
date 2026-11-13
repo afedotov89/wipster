@@ -14,3 +14,8 @@ pub mod tools;
 pub mod ui_bridge;
 pub mod gitlab;
 pub mod issues;
+
+pub mod cloud_db;
+pub mod cloud;
+
+pub mod cloud_google;

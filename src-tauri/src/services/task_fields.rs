@@ -409,6 +409,22 @@ pub fn set_value(
     Ok(())
 }
 
+/// Atomic when called under DbState's mutex, like the ordinary value writer.
+pub fn set_value_if_current(
+    conn: &Connection,
+    task_id: &str,
+    field_id: &str,
+    expected: &serde_json::Value,
+    value: &serde_json::Value,
+) -> Result<serde_json::Value, String> {
+    let current = values(conn, task_id)?[field_id].clone();
+    if &current != expected {
+        return Ok(serde_json::json!({"applied":false,"value":current}));
+    }
+    set_value(conn, task_id, field_id, value)?;
+    Ok(serde_json::json!({"applied":true,"value":values(conn,task_id)?[field_id]}))
+}
+
 fn is_empty(value: &serde_json::Value) -> bool {
     match value {
         serde_json::Value::Null => true,
@@ -644,4 +660,16 @@ mod tests {
             fields.last().unwrap().key,
         );
     }
+    #[test]
+    fn draft_comparison_rejects_a_remote_custom_value_without_journaling_a_stale_write() {
+        let c=db();let field=create(&c,"Notes",Kind::Text,&[]).unwrap();
+        set_value(&c,"t1",&field.id,&serde_json::json!("remote")).unwrap();
+        let revision:i64=c.query_row("SELECT revision FROM sync_control",[],|r|r.get(0)).unwrap();
+        let rejected=set_value_if_current(&c,"t1",&field.id,&serde_json::json!("old"),&serde_json::json!("draft")).unwrap();
+        assert_eq!(rejected,serde_json::json!({"applied":false,"value":"remote"}));
+        assert_eq!(c.query_row("SELECT revision FROM sync_control",[],|r|r.get::<_,i64>(0)).unwrap(),revision);
+        let accepted=set_value_if_current(&c,"t1",&field.id,&serde_json::json!("remote"),&serde_json::json!("draft")).unwrap();
+        assert_eq!(accepted,serde_json::json!({"applied":true,"value":"draft"}));
+    }
+
 }

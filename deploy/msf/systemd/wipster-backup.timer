@@ -1,0 +1,8 @@
+[Unit]
+Description=Daily Wipster database backup
+[Timer]
+OnCalendar=*-*-* 04:20:00 UTC
+RandomizedDelaySec=10min
+Persistent=true
+[Install]
+WantedBy=timers.target

@@ -1,0 +1,39 @@
+# Wipster cloud slice — architecture and protocol
+
+Status: implementation contract, 2026-11-13; revised after independent P1 review. Optional cloud account; the original offline SQLite database remains intact.
+
+## Boundaries
+
+Django 5.2 LTS modular monolith, PostgreSQL production authority. Stateless HTTP processes; database transactions and per-account row locks serialize writes for one user, while different users proceed independently. No Redis, queues or microservices required. Authentication and synchronization are separate modules. Old unused email/social boilerplate is retired.
+
+Native Rust owns network access and device session persistence in the OS credential store. Tokens never enter React, SQLite, logs or browser storage. Browser cloud login is intentionally unavailable in this slice; the existing Tauri application is the supported two-device client. API tokens are random 256-bit opaque credentials, hashed server-side, expiring and revocable per device.
+
+Google OIDC is the primary configured desktop sign-in, with optional phone login. The existing internal account UUID stays stable; nullable phone and unique Google issuer+sub identities do not change sync ownership. Explicit signed-in Google linking preserves the account; no automatic email/phone merge. See [Google native authentication contract](google-auth-contract.md) and [setup](google-auth-setup.md).
+
+Phone login accepts canonical E.164. Twilio Verify is the production adapter with bounded requests. An explicitly enabled DEBUG-only development provider uses a randomly generated challenge code retrievable only through a local management command (never HTTP/logs). Database-backed phone/IP/global send and verify quotas, challenge lifetime and attempt caps apply across workers. Production startup fails closed on unsafe settings. A configured Google-only deployment needs no Twilio credentials; the SMS adapter is independently opt-in. TLS terminates at a trusted ingress; forwarded client IP headers are not trusted by the app.
+
+## Data and privacy
+
+Sync entities: projects (hierarchy/appearance/order), tasks (business columns including archive/tags/checklist; captured `return_ref` stays local), task field definitions, non-file custom field values, and the explicitly allowlisted `wip_limit` preference. Stable existing string IDs are scoped by account on the server. JSON payloads have explicit field/type validation and are projected into native SQLite columns; this avoids two divergent app domain models.
+
+Settings containing LLM/tracker credentials, machine paths, UI state, contexts, chat transcripts/tool confirmations, undo history and dependencies remain device-local in this slice. Chat/context/history are not advertised as synced; copying executable confirmations between devices would be unsafe. File-list values stay local: there is no attachment upload service and a path is never presented as a portable attachment. Free text may of course contain user-entered sensitive information; import is explicit.
+
+## Native workspace and import
+
+Original `wipster.db` remains the offline workspace. Each `(API origin, account ID)` has a separate SQLite workspace. Logout queues revocation durably, disconnects locally, and returns to the original workspace after restarting the process. The OS credential is removed after the server acknowledges revocation; retries continue while online. Sign-in also restarts to isolate late UI/AI continuations. Signing into a different account cannot upload the preceding account's data. Initial import is an explicit choice, copies only synced entities from the original workspace, and is accepted only by an empty cloud account. Otherwise start from cloud. Existing local data is never deleted by import. Device integrations remain device-local.
+
+## Sync v1
+
+`POST /api/v1/auth/start` -> challenge UUID; `POST /auth/verify` -> token/account; `POST /auth/logout` revokes bearer session. All responses are non-cacheable. Invalid/unknown challenges have generic errors. No user-existence lookup endpoint.
+
+`POST /api/v1/sync/push`: `{batch_id, operations:[{kind,id,base_version,data}]}`; `data:null` is deletion. Whole batch is atomic, includes graph/reference validation and final WIP count, so swaps/reorders/import are one transaction. Every mutation increments an entity version and the account sequence. A durable `(account,batch_id)` receipt makes retries exact, including a rejected reuse with a different body. The acknowledgement is `{batch_id,changes:[{kind,id,version}]}` with no entity payloads. Legacy full-payload receipts are projected to this shape on read, without reapplying, rewriting or pruning committed receipts. Version mismatch is HTTP 409 with current `{kind,id,version}` metadata, never last-write-wins. Conflict data is downloaded through the bounded feed. Deletion retains a versioned tombstone; IDs cannot be recreated over a tombstone with version zero.
+
+`GET /api/v1/sync/pull?cursor=N&limit=...`: append-only change feed ordered by account sequence, immutable payload per change and monotonic next cursor. Account row lock assigns sequence in commit order, preventing the concurrent transaction/pagination hole of global auto-increment cursors. Tombstones and receipts are retained indefinitely until a future coordinated compaction protocol. Responses use compact UTF-8 JSON (`ensure_ascii=False`). Feed pages obey both the requested count and a hard 10 MiB encoded-byte ceiling, leaving room below the native 16 MiB hard response cap. One legal entity from a <=8 MiB request fits with metadata. The cursor advances only through emitted entries; `has_more` compares that cursor with the committed account sequence. The query streams candidates instead of materializing the count-sized payload set.
+
+SQLite triggers capture every relevant mutation, including Rust AI, undo and cascades, in a durable dirty journal. The client durably freezes an outbox batch before sending, retaining per-entity local revisions. Retries reuse the same bytes/ID. Acknowledgement clears only captured revisions, preserving edits made during HTTP. Pulled changes never overwrite dirty work. Conflicts stop automatic sync and require explicit keep-local/rebase or use-cloud resolution, retaining a local recovery copy. No device timestamps decide ordering. Background polling and focus/online retry run while the app is open. Acknowledged/stale echoes advance the cursor without reporting an application change or triggering editor refresh. The SQLite inbox applies latest entities as a stream inside one transaction after all pages are durable, preserving atomic graph application without loading the entire feed into a Rust map.
+
+The editor maintains a separate baseline and draft per built-in/custom field. Refreshes follow clean values and preserve dirty values, including checklist text and markdown. A blur uses native field-level compare-and-set under the same mutex as incoming cloud application. A same-field change surfaces an explicit use-updated/save-my-draft choice; even a SQLite update not yet delivered to React cannot be overwritten by a stale blur. In-flight save acknowledgements retain subsequently typed text. A remotely deleted open task retains its visible drafts and rejects saving to the deleted row. These unblurred buffers live in the open editor, not the durable SQLite outbox.
+
+## Limits and operations
+
+One account's writes are serialized. Batches and payloads are bounded; very large imports require a future staged-import protocol, never partial graph uploads. Polling is sufficient for this slice; push notifications can be added later. No deployment or SMS activation is performed by this implementation. See backend/README.md for local development, production configuration, backups and restore, provider setup and verification evidence.

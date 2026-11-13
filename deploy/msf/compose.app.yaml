@@ -1,0 +1,37 @@
+services:
+  api:
+    image: ${WIPSTER_IMAGE:?Immutable image ID required}
+    pull_policy: never
+    env_file: ${WIPSTER_ROOT:-/srv/wipster}/secrets/api.env
+    command: [gunicorn, deploy_wsgi:application, --bind, '0.0.0.0:8080', --workers, '2', --timeout, '60', --max-requests, '1000', --max-requests-jitter, '100', --worker-tmp-dir, /tmp, --access-logfile, /dev/null]
+    volumes:
+      - ${WIPSTER_ROOT:-/srv/wipster}/config/proxy_wsgi.py:/app/deploy_wsgi.py:ro
+    networks:
+      data:
+      edge:
+        aliases: ['api-${WIPSTER_SLOT:?blue or green required}']
+    restart: unless-stopped
+    read_only: true
+    tmpfs: ['/tmp:size=32m,mode=1777']
+    cap_drop: [ALL]
+    security_opt: [no-new-privileges:true]
+    mem_limit: 384m
+    cpus: 1.0
+    pids_limit: 96
+    stop_grace_period: 70s
+    healthcheck:
+      test: [CMD, python, -c, "import urllib.request; urllib.request.urlopen(urllib.request.Request('http://127.0.0.1:8080/readyz', headers={'Host':'wipster.fedotovs.net','X-Forwarded-Proto':'https','X-Real-IP':'127.0.0.1'}), timeout=3)"]
+      interval: 3s
+      timeout: 4s
+      retries: 30
+      start_period: 5s
+    logging:
+      driver: json-file
+      options: {max-size: 5m, max-file: '3'}
+networks:
+  data:
+    external: true
+    name: ${WIPSTER_DATA_NETWORK:-wipster-data}
+  edge:
+    external: true
+    name: ${WIPSTER_EDGE_NETWORK:-wipster-edge}

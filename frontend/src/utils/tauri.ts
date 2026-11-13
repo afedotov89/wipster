@@ -130,6 +130,9 @@ export const getTask = (id: string) => invoke<Task>("get_task", { id });
 export const updateTask = (id: string, input: Partial<Omit<Task, "id" | "created_at" | "updated_at">>) =>
   invoke<Task>("update_task", { id, input });
 
+export const saveTaskDraft = (id: string, field: string, expected: string | null, value: string | null) =>
+  invoke<{ applied: boolean; task: Task }>('save_task_draft', { id, field, expected, value });
+
 export const deleteTask = (id: string) => invoke<void>("delete_task", { id });
 
 export const moveTask = (taskId: string, newStatus: TaskStatus, swapTaskId?: string) =>
@@ -456,3 +459,6 @@ export const getBackendLogs = () => invoke<string[]>("get_backend_logs");
 
 export const agentConfirm = (toolCalls: PendingToolCall[]) =>
   invoke<ToolCallLog[]>("agent_confirm", { toolCalls });
+
+export const saveCustomFieldDraft = (taskId: string, fieldId: string, expected: unknown, value: unknown) =>
+  invoke<{ applied: boolean; value: unknown }>('save_custom_field_draft', { taskId, fieldId, expected: expected ?? null, value: value ?? null });

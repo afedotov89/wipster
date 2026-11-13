@@ -7,6 +7,8 @@ import Markdown from "@/components/common/Markdown";
 interface Props {
   value: string;
   onChange: (value: string | null) => void;
+  onDraftChange?: (value: string) => void;
+  onCancel?: () => void;
   /** The task fills the window: the writing area can be worth the room. */
   expanded?: boolean;
 }
@@ -19,7 +21,7 @@ interface Props {
  * double-click or an empty field's own invitation starts editing, ⌘↩ or moving
  * on ends it, and Escape leaves what was there alone.
  */
-export default function MarkdownFieldEditor({ value, onChange, expanded }: Props) {
+export default function MarkdownFieldEditor({ value, onChange, onDraftChange, onCancel, expanded }: Props) {
   const { t } = useI18n();
   const [editing, setEditing] = useState(false);
   const [draft, setDraft] = useState(value);
@@ -41,7 +43,7 @@ export default function MarkdownFieldEditor({ value, onChange, expanded }: Props
 
   const commit = () => {
     setEditing(false);
-    if (draft !== value) onChange(draft.trim() ? draft : null);
+    onChange(draft.trim() ? draft : null);
   };
 
   if (editing) {
@@ -56,11 +58,12 @@ export default function MarkdownFieldEditor({ value, onChange, expanded }: Props
           maxRows={40}
           value={draft}
           placeholder={t.markdownPlaceholder}
-          onChange={(e) => setDraft(e.target.value)}
+          onChange={(e) => { setDraft(e.target.value); onDraftChange?.(e.target.value); }}
           onKeyDown={(e) => {
             if (e.key === "Escape") {
               e.preventDefault();
               e.stopPropagation();
+              onCancel?.();
               setDraft(value);
               setEditing(false);
             }

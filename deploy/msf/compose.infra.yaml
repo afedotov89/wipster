@@ -1,0 +1,48 @@
+name: ${WIPSTER_INFRA_PROJECT:-wipster-infra}
+services:
+  db:
+    image: postgres:18-alpine@sha256:1018733457011bf88d81db98cf43aac6d5150afc18787dbe204771fedf80ff95
+    env_file: ${WIPSTER_ROOT:-/srv/wipster}/secrets/db.env
+    volumes: [postgres_data:/var/lib/postgresql]
+    networks: [data]
+    restart: unless-stopped
+    mem_limit: 384m
+    cpus: 0.75
+    pids_limit: 128
+    shm_size: 64m
+    command: [postgres, -c, shared_buffers=64MB, -c, max_connections=40, -c, work_mem=2MB]
+    healthcheck:
+      test: [CMD-SHELL, 'pg_isready -U wipster -d wipster']
+      interval: 3s
+      timeout: 3s
+      retries: 30
+    logging: &logging
+      driver: json-file
+      options: {max-size: 5m, max-file: '3'}
+  gateway:
+    image: ${WIPSTER_GATEWAY_IMAGE:?Pinned nginx image required}
+    user: '101:101'
+    entrypoint: [nginx, -g, 'daemon off;']
+    ports: ['127.0.0.1:${WIPSTER_PORT:-18180}:8080']
+    volumes:
+      - ${WIPSTER_ROOT:-/srv/wipster}/config/nginx/gateway.conf:/etc/nginx/nginx.conf:ro
+      - ${WIPSTER_ROOT:-/srv/wipster}/runtime/routing:/etc/nginx/routing:ro
+    networks: [edge]
+    restart: unless-stopped
+    read_only: true
+    tmpfs: ['/tmp:size=16m,mode=1777']
+    cap_drop: [ALL]
+    security_opt: [no-new-privileges:true]
+    mem_limit: 48m
+    cpus: 0.25
+    pids_limit: 64
+    logging: *logging
+networks:
+  data:
+    name: ${WIPSTER_DATA_NETWORK:-wipster-data}
+    internal: true
+  edge:
+    name: ${WIPSTER_EDGE_NETWORK:-wipster-edge}
+volumes:
+  postgres_data:
+    name: ${WIPSTER_DB_VOLUME:-wipster-postgres-data}

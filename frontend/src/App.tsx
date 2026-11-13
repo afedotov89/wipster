@@ -1,3 +1,4 @@
+import { useCloudSync } from "./hooks/useCloudSync";
 import { useEffect, useMemo } from "react";
 import { ThemeProvider, CssBaseline, Box } from "@mui/material";
 import { buildMuiTheme } from "./theme/builder";
@@ -13,6 +14,7 @@ import { useTaskFieldStore } from "./stores/taskFieldStore";
 
 function AppContent() {
   useUndoRedo();
+  useCloudSync();
   useAutoUpdater();
   // The window buttons float over whatever is at the top of the window: the
   // sidebar's own title band normally, the update banner when there is one.

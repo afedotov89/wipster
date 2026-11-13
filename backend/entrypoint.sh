@@ -1,10 +1,7 @@
-#!/bin/bash
-set -e
-
-echo "Waiting for database to be ready..."
-
-echo "Running database migrations..."
-python manage.py migrate --noinput
-
-echo "Starting application server..."
-exec "$@" 
+#!/bin/sh
+set -eu
+# Production runs migrations as a single release job, never in every API replica.
+if [ "${DEBUG:-false}" = "true" ]; then
+    python manage.py migrate --noinput
+fi
+exec "$@"

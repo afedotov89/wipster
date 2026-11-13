@@ -1,24 +1,23 @@
 use rusqlite::Connection;
 use std::sync::Mutex;
-use tauri::{AppHandle, Manager};
+use tauri::AppHandle;
 
 use super::migrations;
 
-pub struct DbState(pub Mutex<Connection>);
+pub struct DbState(pub Mutex<Connection>, pub tokio::sync::RwLock<()>);
 
 impl DbState {
     pub fn new(conn: Connection) -> Self {
-        Self(Mutex::new(conn))
+        Self(Mutex::new(conn), tokio::sync::RwLock::new(()))
     }
 }
 
 pub fn init_db(app: &AppHandle) -> Result<Connection, Box<dyn std::error::Error>> {
-    let app_dir = app
-        .path()
-        .app_data_dir()?;
+    let app_dir = crate::services::cloud::data_dir(app)?;
     std::fs::create_dir_all(&app_dir)?;
 
-    let db_path = app_dir.join("wipster.db");
+    let active = crate::services::cloud::load(app)?;
+    let db_path = crate::services::cloud::workspace(app, active.as_ref())?;
     let conn = Connection::open(&db_path)?;
 
     conn.execute_batch("PRAGMA journal_mode=WAL; PRAGMA foreign_keys=ON;")?;

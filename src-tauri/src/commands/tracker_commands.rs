@@ -29,6 +29,7 @@ pub struct DeviceAuthStart {
 /// Step 1: Start device auth flow — returns code for user to enter
 #[tauri::command]
 pub async fn tracker_start_auth(db: State<'_, DbState>) -> Result<DeviceAuthStart, String> {
+    let _workspace_lease = db.1.read().await;
     let client_id = {
         let conn = db.0.lock().map_err(|e| e.to_string())?;
         get_setting(&conn, "tracker_client_id").ok_or("Введите Client ID")?
@@ -53,6 +54,7 @@ pub async fn tracker_start_auth(db: State<'_, DbState>) -> Result<DeviceAuthStar
 /// Step 2: Poll for token after user authorized
 #[tauri::command]
 pub async fn tracker_poll_token(db: State<'_, DbState>) -> Result<String, String> {
+    let _workspace_lease = db.1.read().await;
     let (client_id, client_secret, device_code, interval, expires_in) = {
         let conn = db.0.lock().map_err(|e| e.to_string())?;
         let client_id = get_setting(&conn, "tracker_client_id").ok_or("No client_id")?;
@@ -144,6 +146,7 @@ pub fn gitlab_status(db: State<'_, DbState>) -> Result<Option<String>, String> {
 /// middle of a request the user cared about.
 #[tauri::command]
 pub async fn gitlab_test(db: State<'_, DbState>) -> Result<String, String> {
+    let _workspace_lease = db.1.read().await;
     let (url, token) = {
         let conn = db.0.lock().map_err(|e| e.to_string())?;
         (

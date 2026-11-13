@@ -1,0 +1,98 @@
+name: Cloud and native verification
+on:
+  pull_request:
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  backend:
+    runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: postgres:18
+        env:
+          POSTGRES_DB: wipster
+          POSTGRES_USER: wipster
+          POSTGRES_PASSWORD: ci-only
+        ports: [5432:5432]
+        options: >-
+          --health-cmd "pg_isready -U wipster" --health-interval 2s --health-timeout 3s --health-retries 20
+    env:
+      DEBUG: 'true'
+      OTP_PROVIDER: development
+      DEV_OTP_ENABLED: 'true'
+      DATABASE_URL: postgresql://wipster:ci-only@localhost:5432/wipster
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.13'
+          cache: pip
+          cache-dependency-path: backend/requirements.lock
+      - run: pip install -r backend/requirements.lock
+      - run: python backend/manage.py makemigrations --check --dry-run
+      - run: python backend/manage.py migrate --noinput
+      - run: python backend/manage.py check
+      - run: pytest -q backend/tests_cloud
+  native-and-frontend:
+    runs-on: macos-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: npm
+          cache-dependency-path: frontend/package-lock.json
+      - uses: dtolnay/rust-toolchain@stable
+      - run: npm ci
+        working-directory: frontend
+      - run: npm test
+        working-directory: frontend
+      - run: npm run build
+        working-directory: frontend
+      - run: cargo test --locked --lib
+        working-directory: src-tauri
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.13'
+      - name: Native sync over local development HTTP
+        env:
+          DEBUG: 'true'
+          DEV_OTP_ENABLED: 'true'
+          OTP_PROVIDER: development
+          DATABASE_URL: sqlite:///${{ runner.temp }}/wipster-cloud-ci.sqlite3
+          WIPSTER_TEST_API: http://127.0.0.1:8080
+        run: |
+          python -m venv backend/.venv
+          backend/.venv/bin/pip install -r backend/requirements.lock
+          backend/.venv/bin/python backend/manage.py migrate --noinput
+          backend/.venv/bin/python backend/manage.py runserver 127.0.0.1:8080 --noreload > "$RUNNER_TEMP/wipster-api.log" 2>&1 &
+          api_pid=$!
+          trap 'kill "$api_pid"' EXIT
+          for ((attempt=1; attempt<=20; attempt++)); do
+            if curl -fsS http://127.0.0.1:8080/readyz > /dev/null; then break; fi
+            sleep 1
+          done
+          curl -fsS http://127.0.0.1:8080/readyz
+          cargo test --locked --manifest-path src-tauri/Cargo.toml --lib native_two_clients_http_offline_retry_conflict_delete -- --ignored
+      - name: Native Google flow with signed provider fixture
+        env:
+          DEBUG: 'true'
+          DEV_OTP_ENABLED: 'true'
+          OTP_PROVIDER: disabled
+          GOOGLE_ENABLED: 'true'
+          GOOGLE_CLIENT_ID: local-test.apps.googleusercontent.com
+          WIPSTER_GOOGLE_TEST_PROVIDER: '1'
+          DATABASE_URL: sqlite:///${{ runner.temp }}/wipster-google-ci.sqlite3
+          WIPSTER_TEST_API: http://127.0.0.1:8081
+        run: |
+          backend/.venv/bin/python backend/manage.py migrate --noinput
+          backend/.venv/bin/gunicorn --chdir backend tests_cloud.google_mock_wsgi:application --bind 127.0.0.1:8081 --workers 2 > "$RUNNER_TEMP/wipster-google-api.log" 2>&1 &
+          api_pid=$!
+          trap 'kill "$api_pid"' EXIT
+          for ((attempt=1; attempt<=20; attempt++)); do
+            if curl -fsS http://127.0.0.1:8081/readyz > /dev/null; then break; fi
+            sleep 1
+          done
+          curl -fsS http://127.0.0.1:8081/readyz
+          cargo test --locked --manifest-path src-tauri/Cargo.toml --lib native_google_two_device_sessions_over_http -- --ignored

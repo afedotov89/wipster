@@ -59,6 +59,7 @@ pub async fn agent_chat(
     focused_task_id: Option<String>,
     history: Option<Vec<(String, String)>>,
 ) -> Result<AgentResponse, String> {
+    let _workspace_lease = db.1.read().await;
     crate::services::logger::log("info", &format!("[agent_chat] received message: {}, focused_task: {:?}", message, focused_task_id));
     let (cfg, memory, focused_task_context) = {
         let conn = db.0.lock().map_err(|e| e.to_string())?;
@@ -157,6 +158,7 @@ pub fn llm_providers() -> &'static [crate::services::llm::Provider] {
 /// uses, so the test fails exactly where the real features would fail.
 #[tauri::command]
 pub async fn test_llm_connection(db: State<'_, DbState>) -> Result<LlmTestResult, String> {
+    let _workspace_lease = db.1.read().await;
     let (cfg, projects_in_db) = {
         let conn = db.0.lock().map_err(|e| e.to_string())?;
 
@@ -228,6 +230,7 @@ pub async fn agent_confirm(
     db: State<'_, DbState>,
     tool_calls: Vec<agent::PendingToolCall>,
 ) -> Result<Vec<agent::ToolCallLog>, String> {
+    let _workspace_lease = db.1.read().await;
     let mut results = Vec::new();
     for tc in &tool_calls {
         let result = agent::execute_confirmed_tool(&tc.tool_name, &tc.arguments, &db.0).await;

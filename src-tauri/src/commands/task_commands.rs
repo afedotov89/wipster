@@ -1,4 +1,5 @@
 use tauri::State;
+use rusqlite::Connection;
 use uuid::Uuid;
 
 use crate::db::connection::DbState;
@@ -296,6 +297,99 @@ pub fn update_task(
     .map_err(|e| e.to_string())?;
 
     Ok(updated)
+}
+
+#[derive(serde::Serialize)]
+pub struct DraftSaveResult {
+    applied: bool,
+    task: Task,
+}
+
+// Runs under DbState's connection mutex, shared with incoming cloud application.
+// Compare only this field so unrelated edits do not cause false conflicts.
+fn save_draft(
+    conn: &Connection,
+    id: &str,
+    field: &str,
+    expected: Option<String>,
+    value: Option<String>,
+) -> Result<DraftSaveResult, String> {
+    if ![
+        "title",
+        "dod",
+        "due",
+        "time_estimate",
+        "promised_to",
+        "comment",
+        "tracker_url",
+        "checklist",
+    ]
+    .contains(&field)
+    {
+        return Err("Unsupported draft field".into());
+    }
+    let old = get_task_by_id(conn, id)?;
+    let old_json = serde_json::to_value(&old).map_err(|e| e.to_string())?;
+    if old_json[field].as_str() != expected.as_deref() {
+        return Ok(DraftSaveResult {
+            applied: false,
+            task: old,
+        });
+    }
+    let value = if field == "title" {
+        Some(
+            value
+                .filter(|v| !v.trim().is_empty())
+                .ok_or("Title is required")?,
+        )
+    } else {
+        value
+    };
+    if field == "checklist"
+        && !serde_json::from_str::<serde_json::Value>(value.as_deref().unwrap_or(""))
+            .map_err(|_| "Invalid checklist")?
+            .is_array()
+    {
+        return Err("Invalid checklist".into());
+    }
+    if old_json[field].as_str() == value.as_deref() {
+        return Ok(DraftSaveResult {
+            applied: true,
+            task: old,
+        });
+    }
+    conn.execute(
+        &format!("UPDATE tasks SET {field}=?1,updated_at=datetime('now') WHERE id=?2"),
+        rusqlite::params![value, id],
+    )
+    .map_err(|e| e.to_string())?;
+    let task = get_task_by_id(conn, id)?;
+    undo_redo::record_change(
+        conn,
+        "update",
+        "task",
+        id,
+        Some(&old_json.to_string()),
+        Some(&serde_json::to_string(&task).map_err(|e| e.to_string())?),
+        None,
+    )
+    .map_err(|e| e.to_string())?;
+    Ok(DraftSaveResult {
+        applied: true,
+        task,
+    })
+}
+
+#[tauri::command]
+pub fn save_task_draft(
+    db: State<'_, DbState>,
+    id: String,
+    field: String,
+    expected: Option<String>,
+    value: Option<String>,
+) -> Result<DraftSaveResult, String> {
+    let conn = db.0.lock().map_err(|e| e.to_string())?;
+    save_draft(&conn, &id, &field, expected, value)
 }
 
 #[tauri::command]
@@ -618,5 +712,73 @@ mod tests {
             )
             .unwrap();
         assert_eq!(count, 3);
+    }
+}
+
+#[cfg(test)]
+mod draft_tests {
+    use super::*;
+    use crate::db::connection::init_test_db;
+
+    #[test]
+    fn a_stale_editor_cannot_overwrite_a_field_changed_in_sqlite() {
+        let c = init_test_db();
+        c.execute(
+            "INSERT INTO tasks(id,title,comment) VALUES('draft','saved','old comment')",
+            [],
+        )
+        .unwrap();
+        c.execute("UPDATE tasks SET title='remote title' WHERE id='draft'", [])
+            .unwrap();
+        let result = save_draft(
+            &c,
+            "draft",
+            "title",
+            Some("saved".into()),
+            Some("unblurred draft".into()),
+        )
+        .unwrap();
+        assert!(!result.applied);
+        assert_eq!(result.task.title, "remote title");
+        assert_eq!(
+            c.query_row("SELECT COUNT(*) FROM changelog", [], |r| r.get::<_, i64>(0))
+                .unwrap(),
+            0
+        );
+        // An unrelated change does not stop a field-level save. It is journaled
+        // and undoable like the existing editor command.
+        let result = save_draft(
+            &c,
+            "draft",
+            "comment",
+            Some("old comment".into()),
+            Some("new comment".into()),
+        )
+        .unwrap();
+        assert!(result.applied);
+        assert_eq!(result.task.title, "remote title");
+        assert_eq!(result.task.comment.as_deref(), Some("new comment"));
+        assert_eq!(
+            c.query_row("SELECT COUNT(*) FROM changelog", [], |r| r.get::<_, i64>(0))
+                .unwrap(),
+            1
+        );
+        let rebased = save_draft(
+            &c,
+            "draft",
+            "title",
+            Some("remote title".into()),
+            Some("unblurred draft".into()),
+        )
+        .unwrap();
+        assert!(rebased.applied);
+        assert!(save_draft(
+            &c,
+            "draft",
+            "status",
+            Some("queue".into()),
+            Some("doing".into())
+        )
+        .is_err());
     }
 }

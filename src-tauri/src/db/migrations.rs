@@ -5,7 +5,7 @@ use super::schema;
 /// Version the schema reaches once every migration below has run. Tests assert
 /// against this instead of a literal, so adding a migration means touching one
 /// number rather than hunting for the assertions that pinned the old one.
-pub const LATEST_VERSION: i32 = 17;
+pub const LATEST_VERSION: i32 = 18;
 
 pub fn run(conn: &Connection) -> Result<(), Box<dyn std::error::Error>> {
     let version = current_version(conn);
@@ -210,8 +210,13 @@ pub fn run(conn: &Connection) -> Result<(), Box<dyn std::error::Error>> {
         conn.execute_batch("ALTER TABLE task_fields ADD COLUMN column_side TEXT;")?;
         conn.execute(
             "INSERT OR REPLACE INTO schema_version (version) VALUES (?1)",
-            [LATEST_VERSION],
+            [17],
         )?;
+    }
+
+    if version < 18 {
+        crate::services::cloud_db::install(conn)?;
+        conn.execute("INSERT OR REPLACE INTO schema_version(version) VALUES(?1)", [LATEST_VERSION])?;
     }
 
     Ok(())

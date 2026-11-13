@@ -22,6 +22,7 @@ pub async fn ai_fill_task(
     db: State<'_, DbState>,
     task_id: String,
 ) -> Result<AiFillResult, String> {
+    let _workspace_lease = db.1.read().await;
     let (cfg, system_prompt, tracker_url_fill, title_is_placeholder) = {
         let conn = db.0.lock().map_err(|e| e.to_string())?;
 
