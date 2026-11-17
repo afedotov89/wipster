@@ -124,10 +124,10 @@ describe('native Google and optional phone account flow', () => {
     fireEvent.click(await screen.findByRole('button', { name: 'Войти через Google' }));
     expect(await screen.findByText(/Вход через Google не разрешён/)).toBeInTheDocument();
   });
-  it('clearly identifies the desktop-only account boundary in browser mode', () => {
+  it('renders browser account status without invoking native IPC', () => {
     isTauri.mockReturnValue(false);
     render(<AccountPanel />);
-    expect(screen.getByText(/Browser login is not supported/)).toBeInTheDocument();
+    expect(screen.getByText(/Изменения сначала сохраняются на устройстве/)).toBeInTheDocument();
     expect(screen.queryByRole('textbox')).not.toBeInTheDocument();
     expect(invoke).not.toHaveBeenCalled();
   });

@@ -34,3 +34,7 @@ src-tauri/target/
 backend/.env
 *.sqlite3
 .pytest_cache/
+
+# Local browser verification artifacts (selected screenshots live in docs/pwa-evidence)
+frontend/test-results/
+frontend/playwright-report/

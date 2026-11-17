@@ -1,3 +1,5 @@
+import { isTauri } from "@tauri-apps/api/core";
+import BrowserApp from "./browser/BrowserApp";
 import { useCloudSync } from "./hooks/useCloudSync";
 import { useEffect, useMemo } from "react";
 import { ThemeProvider, CssBaseline, Box } from "@mui/material";
@@ -30,7 +32,7 @@ function AppContent() {
   );
 }
 
-export default function App() {
+function NativeApp() {
   const current = useThemeStore((s) => s.current);
   const hydrateFromDb = useThemeStore((s) => s.hydrateFromDb);
   const hydrateSettings = useSettingsStore((s) => s.hydrate);
@@ -52,3 +54,5 @@ export default function App() {
     </ThemeProvider>
   );
 }
+
+export default function App() { return isTauri() ? <NativeApp /> : <BrowserApp />; }

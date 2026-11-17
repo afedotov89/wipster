@@ -1,3 +1,4 @@
+import { isTauri } from "@tauri-apps/api/core";
 import { useEffect, useState } from "react";
 import {
   Box,
@@ -13,6 +14,7 @@ import {
   TextField,
   Tooltip,
   Typography,
+  useMediaQuery,
 } from "@mui/material";
 import { DndContext, closestCenter, PointerSensor, useSensor, useSensors, type DragEndEvent } from "@dnd-kit/core";
 import { SortableContext, verticalListSortingStrategy, useSortable, arrayMove } from "@dnd-kit/sortable";
@@ -54,9 +56,11 @@ function FieldRow({ field, onRemove }: { field: TaskField; onRemove: (field: Tas
     id: field.id,
   });
   const column = columnOf(field);
+  const compactWeb=useMediaQuery("(max-width:899px)")&&!isTauri();
 
   return (
     <Box
+      className="web-field-row"
       ref={setNodeRef}
       style={{ transform: CSS.Transform.toString(transform), transition }}
       sx={{
@@ -81,6 +85,7 @@ function FieldRow({ field, onRemove }: { field: TaskField; onRemove: (field: Tas
       </Box>
 
       <Checkbox
+        inputProps={{ "aria-label": "Показывать поле " + fieldLabel(field,t) }}
         size="small"
         checked={field.enabled}
         onChange={(e) => update(field.id, { enabled: e.target.checked })}
@@ -106,7 +111,7 @@ function FieldRow({ field, onRemove }: { field: TaskField; onRemove: (field: Tas
 
       {/* Which column it sits in when a task fills the window. The type decides
           until the user decides otherwise, and this is where they do. */}
-      <Tooltip title={column === "side" ? t.moveFieldToMain : t.moveFieldToSide}>
+      {!compactWeb && <Tooltip title={column === "side" ? t.moveFieldToMain : t.moveFieldToSide}>
         <IconButton
           size="small"
           onClick={() => update(field.id, { columnSide: column === "side" ? "main" : "side" })}
@@ -118,7 +123,7 @@ function FieldRow({ field, onRemove }: { field: TaskField; onRemove: (field: Tas
             <NotesOutlinedIcon sx={{ fontSize: 15 }} />
           )}
         </IconButton>
-      </Tooltip>
+      </Tooltip>}
 
       <Chip
         label={kindLabel(field.kind, t)}
@@ -192,7 +197,7 @@ function AddField({ onDone }: { onDone: () => void }) {
         InputProps={{ sx: { fontSize: 13 } }}
         InputLabelProps={{ sx: { fontSize: 13 } }}
       >
-        {KINDS.map((k) => (
+        {KINDS.filter(k=>isTauri() || k!=="file_list").map((k) => (
           <MenuItem key={k} value={k} sx={{ fontSize: 13 }}>
             {kindLabel(k, t)}
           </MenuItem>
@@ -236,6 +241,7 @@ function AddField({ onDone }: { onDone: () => void }) {
  * one keeps its values for the day it comes back.
  */
 export default function FieldsPanel() {
+  const compactWeb=useMediaQuery("(max-width:899px)")&&!isTauri();
   const { t } = useI18n();
   const { fields, removed, load, reorder, restore, remove } = useTaskFieldStore();
   const [adding, setAdding] = useState(false);
@@ -262,7 +268,7 @@ export default function FieldsPanel() {
         {t.taskFieldsHint}
       </Typography>
       <Typography variant="body2" color="text.secondary">
-        {t.taskFieldsColumnHint}
+        {compactWeb ? "На телефоне поля редактора расположены в одну колонку." : t.taskFieldsColumnHint}
       </Typography>
 
       <SettingsGroup>

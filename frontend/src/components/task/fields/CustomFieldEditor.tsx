@@ -1,3 +1,4 @@
+import { useUiStore } from "@/stores/uiStore";
 import { useValueDraft } from "@/hooks/useValueDraft";
 import {
   Box,
@@ -44,7 +45,8 @@ export default function CustomFieldEditor({ field, value, expanded, onChange }: 
   const { t } = useI18n();
   const label = field.label ?? field.key;
 
-  const buffer = useValueDraft(value, onChange);
+  const selectedTaskId = useUiStore(s=>s.selectedTaskId);
+  const buffer = useValueDraft(value, onChange, selectedTaskId+":custom:"+field.id);
   const draft = asText(buffer.value);
   const setDraft = buffer.change;
   const send = (next: unknown) => { buffer.change(next); void buffer.commit(next); };

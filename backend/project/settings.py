@@ -63,3 +63,12 @@ DATA_UPLOAD_MAX_MEMORY_SIZE = 8 * 1024 * 1024
 LOGGING = {'version': 1, 'disable_existing_loggers': False,
            'handlers': {'console': {'class': 'logging.StreamHandler'}},
            'root': {'handlers': ['console'], 'level': 'WARNING'}}
+
+# Browser sessions are a separate boundary; native Bearer endpoints stay cookie-blind.
+CSRF_COOKIE_SECURE = not DEBUG
+CSRF_COOKIE_HTTPONLY = True
+CSRF_COOKIE_SAMESITE = 'Strict'
+CSRF_COOKIE_NAME = 'wipster_csrf_dev' if DEBUG else '__Host-wipster-csrf'
+
+# Empty in native-only backend images; set to immutable bundled static build for PWA.
+PWA_ROOT = env('PWA_ROOT', default='')

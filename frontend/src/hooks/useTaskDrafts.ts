@@ -1,3 +1,5 @@
+import { isTauri } from "@tauri-apps/api/core";
+import { readDraft, retainDraft } from "@/browser/drafts";
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { useTaskStore } from '@/stores/taskStore';
 import type { Task } from '@/utils/tauri';
@@ -36,15 +38,31 @@ export function useTaskDrafts(task?: Task) {
     publish();
   }, [task, publish]);
 
+  useEffect(() => {
+    if (isTauri() || !task?.id) return;
+    const id=task.id; let cancelled=false;
+    for (const field of DRAFT_FIELDS) void readDraft(id+':'+field).then(saved => {
+      if (!cancelled && saved && entries.current[field].value===text(entries.current[field].base)) { entries.current[field]=saved; publish(); }
+    });
+    return () => { cancelled=true; };
+  }, [task?.id, publish]);
+  useEffect(() => {
+    if (isTauri()) return;
+    const guard=(event:BeforeUnloadEvent)=>{ if (DRAFT_FIELDS.some(f=>entries.current[f].value!==text(entries.current[f].base))) { event.preventDefault();event.returnValue=''; } };
+    window.addEventListener('beforeunload',guard);return()=>window.removeEventListener('beforeunload',guard);
+  }, []);
+
   const change = useCallback((field: DraftField, value: string) => {
     const e = entries.current[field];
     entries.current[field] = { ...e, value, error: undefined };
+    if (!isTauri() && current.current?.id) void retainDraft(current.current.id+":"+field, entries.current[field]);
     publish();
   }, [publish]);
 
   const discard = useCallback((field: DraftField) => {
     const latest = current.current?.[field] ?? null;
     entries.current[field] = { base: latest, value: text(latest) };
+    if (!isTauri() && current.current?.id) void retainDraft(current.current.id+":"+field, undefined);
     publish();
   }, [publish]);
 
@@ -62,6 +80,7 @@ export function useTaskDrafts(task?: Task) {
       const now = entries.current[field];
       if (result.applied || now.value === text(result.task[field])) {
         entries.current[field] = { base: result.task[field], value: now.value === e.value ? text(result.task[field]) : now.value };
+        if (!isTauri()) void retainDraft(task.id+':'+field, entries.current[field].value===text(entries.current[field].base)?undefined:entries.current[field]);
       } else {
         entries.current[field] = { ...now, error: 'changed' };
       }

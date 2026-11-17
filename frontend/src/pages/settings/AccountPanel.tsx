@@ -1,10 +1,11 @@
+import WebAccountPanel from "@/browser/WebAccountPanel";
 import { useEffect, useRef, useState } from 'react';
 import { Alert, Box, Button, Checkbox, CircularProgress, FormControlLabel, Stack, TextField, Typography } from '@mui/material';
 import { invoke, isTauri } from '@tauri-apps/api/core';
 import { useCloudStore } from '@/stores/cloudStore';
 import { useI18n } from '@/i18n';
 
-export default function AccountPanel() {
+function NativeAccountPanel() {
   const { locale } = useI18n();
   const ru = locale === 'ru';
   const { status, busy, sync } = useCloudStore();
@@ -135,3 +136,5 @@ export default function AccountPanel() {
     {working && <CircularProgress size={20} />}
   </Stack>;
 }
+
+export default function AccountPanel() { return isTauri() ? <NativeAccountPanel /> : <WebAccountPanel />; }

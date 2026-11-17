@@ -1,0 +1,42 @@
+{
+  "scope": "Readonly public registry/GitHub ref resolution for local proposal; no image build/pull/CI/publication",
+  "inputs": {
+    "checkout": {
+      "url": "https://api.github.com/repos/actions/checkout/git/ref/tags/v4",
+      "sha": "11d5960a326750d5838078e36cf38b85af677262",
+      "type": "commit"
+    },
+    "setup-node": {
+      "url": "https://api.github.com/repos/actions/setup-node/git/ref/tags/v4",
+      "sha": "49933ea5288caeca8642d1e84afbd3f7d6820020",
+      "type": "commit"
+    },
+    "setup-python": {
+      "url": "https://api.github.com/repos/actions/setup-python/git/ref/tags/v5",
+      "sha": "a26af69be951a213d495a4c3e4e4022e16d87065",
+      "type": "commit"
+    },
+    "upload-artifact": {
+      "url": "https://api.github.com/repos/actions/upload-artifact/git/ref/tags/v4",
+      "sha": "ea165f8d65b6e75b540449e92b4886f43607fa02",
+      "type": "commit"
+    },
+    "download-artifact": {
+      "url": "https://api.github.com/repos/actions/download-artifact/git/ref/tags/v4",
+      "sha": "d3f86a106a0bac45b974a628896c90dbdf5c8093",
+      "type": "commit"
+    },
+    "node": {
+      "tag": "22-bookworm-slim",
+      "image": "node:22-bookworm-slim@sha256:e9f565d32859f0cbfb52125eafe8be39390f24dac302dc3cdf566e8ba3ab21ee",
+      "mediaType": "application/vnd.oci.image.index.v1+json",
+      "linux_amd64": "sha256:47725aca53d3295ec2d3be8f62726599b3033cc262edc2c7e429909b3ac599fc"
+    },
+    "python": {
+      "tag": "3.13-slim",
+      "image": "python:3.13-slim@sha256:e48f59cdba69a3cbd9ed2cf0f348d90d45a8d350d98134cf1070bc106ee9ed90",
+      "mediaType": "application/vnd.oci.image.index.v1+json",
+      "linux_amd64": "sha256:48d884813cf44e927cf64c5529dd630dd3b18338c6dc727991eef9b71e934a20"
+    }
+  }
+}

@@ -1,0 +1,2 @@
+import { defineConfig } from '@playwright/test';
+export default defineConfig({testDir:'./e2e',workers:1,fullyParallel:false,timeout:60000,expect:{timeout:10000},reporter:[['list']],use:{actionTimeout:12000,navigationTimeout:12000,baseURL:'http://127.0.0.1:18089',trace:'retain-on-failure'},projects:[{name:'chromium',use:{browserName:'chromium',viewport:{width:390,height:844},isMobile:true,hasTouch:true}},{name:'webkit',use:{browserName:'webkit',viewport:{width:390,height:844},isMobile:true,hasTouch:true}}]});

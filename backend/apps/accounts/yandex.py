@@ -78,9 +78,10 @@ def exchange(code, verifier):
         raise APIError('yandex_unavailable', 503) from None
 
 
-def start(body, ip, session=None):
+def start(body, ip, session=None, *, channel="native"):
     enabled()
-    reserve_limits('yandex_start', '', ip)
+    if channel != 'web':
+        reserve_limits('yandex_start', '', ip)
     # Reject caller-directed endpoints/claims rather than silently accepting them.
     if set(body) - {'device_name'}:
         raise APIError('invalid_yandex_request')
@@ -88,7 +89,7 @@ def start(body, ip, session=None):
     with transaction.atomic():
         if session:
             live_session(session)
-        attempt = YandexAttempt.objects.create(proof_hash=digest(proof), state=secrets.token_urlsafe(32),
+        attempt = YandexAttempt.objects.create(channel=channel, proof_hash=digest(proof), state=secrets.token_urlsafe(32),
             verifier=verifier, link_session=session, device_name=str(body.get('device_name') or 'Wipster')[:100],
             expires_at=timezone.now() + timedelta(minutes=5))
     params = {'client_id': settings.YANDEX_CLIENT_ID, 'redirect_uri': CALLBACK, 'response_type': 'code',
@@ -133,37 +134,39 @@ def callback(query, ip):
     return 'ready'
 
 
-def locked_attempt(body, session):
+def locked_attempt(body, session, channel="native"):
     try:
         key = attempt_id(body)
     except APIError:
         raise APIError('invalid_yandex_login') from None
     attempt = YandexAttempt.objects.select_for_update().filter(pk=key).first()
     proof = body.get('proof')
-    if (not attempt or not isinstance(proof, str) or not re.fullmatch(r'[A-Za-z0-9_-]{43}', proof) or
+    if (not attempt or attempt.channel != channel or not isinstance(proof, str) or not re.fullmatch(r'[A-Za-z0-9_-]{43}', proof) or
             not hmac.compare_digest(attempt.proof_hash, digest(proof)) or
             attempt.link_session_id != (session.pk if session else None) or attempt.expires_at <= timezone.now()):
         raise APIError('invalid_yandex_login')
     return attempt
 
 
-def status(body, ip, session=None):
+def status(body, ip, session=None, *, channel="native"):
     enabled()
-    reserve_limits('yandex_status', '', ip)
+    if channel != 'web':
+        reserve_limits('yandex_status', '', ip)
     with transaction.atomic():
         if session:
             live_session(session)
-        attempt = locked_attempt(body, session)
+        attempt = locked_attempt(body, session, channel)
         return {'status': attempt.status}
 
 
-def cancel(body, ip, session=None):
+def cancel(body, ip, session=None, *, channel="native"):
     enabled()
-    reserve_limits('yandex_cancel', '', ip)
+    if channel != 'web':
+        reserve_limits('yandex_cancel', '', ip)
     with transaction.atomic():
         if session:
             live_session(session)
-        attempt = locked_attempt(body, session)
+        attempt = locked_attempt(body, session, channel)
         if attempt.result_session_id:
             DeviceSession.objects.filter(pk=attempt.result_session_id, revoked_at__isnull=True).update(revoked_at=timezone.now())
         attempt.status, attempt.verifier = 'cancelled', ''
@@ -188,13 +191,14 @@ def resolve_identity(attempt, session):
     return identity
 
 
-def finish(body, ip, session=None):
+def finish(body, ip, session=None, *, channel="native"):
     enabled()
-    reserve_limits('yandex_finish', '', ip)
+    if channel != 'web':
+        reserve_limits('yandex_finish', '', ip)
     with transaction.atomic():
         if session:
             live_session(session)
-        attempt = locked_attempt(body, session)
+        attempt = locked_attempt(body, session, channel)
         if attempt.status not in ('ready', 'finished'):
             raise APIError('invalid_yandex_login')
         if session:
@@ -205,7 +209,7 @@ def finish(body, ip, session=None):
             return {'linked': True, 'email': attempt.email, 'name': attempt.name, 'yandex_linked': True}
         # Recover a lost HTTPS response without retaining a bearer token in the DB.
         # A hash of the proof cannot recover this domain-separated session token.
-        token = digest('yandex-device-session:' + str(attempt.pk) + ':' + body['proof'])
+        token = digest(('yandex-web-session:' if channel == 'web' else 'yandex-device-session:') + str(attempt.pk) + ':' + body['proof'])
         if attempt.status == 'finished':
             device = DeviceSession.objects.select_for_update().get(pk=attempt.result_session_id)
             if device.revoked_at or device.expires_at <= timezone.now():
@@ -215,7 +219,7 @@ def finish(body, ip, session=None):
                     'google_linked': device.account.identities.filter(issuer='https://accounts.google.com').exists(),
                     'expires_at': device.expires_at.isoformat()}
         identity = resolve_identity(attempt, None)
-        result = issue_session(identity.account, attempt.device_name, identity, token=token)
+        result = issue_session(identity.account, attempt.device_name, identity, token=token, channel=channel)
         attempt.status, attempt.result_session_id = 'finished', digest(token)
         attempt.save(update_fields=['status', 'result_session'])
         return result

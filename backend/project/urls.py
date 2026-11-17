@@ -64,7 +64,10 @@ def yandex_callback(request):
         message = 'Не удалось завершить вход. Вернитесь в Wipster и начните заново.'
     # Only constants reach this page; no query, code, state, proof or session.
     response = HttpResponse('<!doctype html><html lang="ru"><meta charset="utf-8">'
-                            '<title>Wipster</title><h1>Wipster</h1><p>' + message + '</p></html>', status=status)
+                            '<meta name="viewport" content="width=device-width, initial-scale=1">'
+                            '<title>Wipster</title><h1>Wipster</h1><p>' + message + '</p>'
+                            '<p><a href="/">Вернуться в Wipster</a></p>'
+                            '<p>Если вход начат в приложении с экрана Домой, откройте его снова.</p></html>', status=status)
     response['Cache-Control'] = 'no-store'
     response['Referrer-Policy'] = 'no-referrer'
     response['Content-Security-Policy'] = "default-src 'none'; frame-ancestors 'none'; base-uri 'none'; form-action 'none'"
@@ -116,7 +119,9 @@ def ready(request):
             cursor.execute('SELECT phone FROM accounts_phoneidentity LIMIT 1')
             cursor.execute('SELECT subject FROM accounts_externalidentity LIMIT 1')
             cursor.execute('SELECT consumed FROM accounts_googleattempt LIMIT 1')
-            cursor.execute('SELECT status FROM accounts_yandexattempt LIMIT 1')
+            cursor.execute('SELECT status, channel FROM accounts_yandexattempt LIMIT 1')
+            cursor.execute('SELECT channel FROM accounts_devicesession LIMIT 1')
+            cursor.execute('SELECT generation FROM accounts_webbrowser LIMIT 1')
             cursor.execute('SELECT sequence FROM sync_change LIMIT 1')
         return JsonResponse({'status': 'ok'})
     except DatabaseError:
@@ -135,3 +140,11 @@ urlpatterns = [path('api/v1/auth/capabilities', capabilities),
                path('api/v1/auth/start', start), path('api/v1/auth/verify', verify), path('api/v1/auth/logout', logout),
                path('api/v1/sync/push', push), path('api/v1/sync/pull', pull),
                path('healthz', health), path('readyz', ready), path('api/v1/health/', ready)]
+
+# Browser cookies are accepted only by the explicitly CSRF-protected web boundary.
+from .web import urlpatterns as web_urls
+urlpatterns += web_urls
+
+# Exact static routes only, after API/OAuth/health. No blanket SPA fallback.
+from .pwa import urlpatterns as pwa_urls
+urlpatterns += pwa_urls

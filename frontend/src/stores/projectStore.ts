@@ -23,7 +23,8 @@ export const useProjectStore = create<ProjectState>((set, get) => ({
     set({ loading: true });
     try {
       const projects = await api.listProjects();
-      const lastId = localStorage.getItem("wipster-last-project");
+      let lastId: string | null = null;
+      try { lastId = localStorage.getItem("wipster-last-project"); } catch {}
       const restored = lastId && projects.some((p) => p.id === lastId) ? lastId : null;
       set({ projects, loading: false, selectedProjectId: restored });
     } catch (e) {
@@ -34,7 +35,7 @@ export const useProjectStore = create<ProjectState>((set, get) => ({
 
   select: (id) => {
     set({ selectedProjectId: id });
-    if (id) localStorage.setItem("wipster-last-project", id);
+    if (id) try { localStorage.setItem("wipster-last-project", id); } catch {}
     // A task filling the window hides the board; asking for a board means
     // wanting to see it. Doing this here rather than in an effect matters:
     // clicking a project and opening a task can land in the same tick, and the

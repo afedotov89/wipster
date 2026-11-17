@@ -1,3 +1,4 @@
+import { isTauri } from "@tauri-apps/api/core";
 import { useCallback } from "react";
 import { useTaskStore } from "@/stores/taskStore";
 import { useUiStore } from "@/stores/uiStore";
@@ -13,7 +14,7 @@ export function useWipGuard() {
   const safeMove = useCallback(
     async (taskId: string, newStatus: TaskStatus) => {
       // On pause (moving from doing to queue), capture context first
-      if (newStatus === "queue") {
+      if (isTauri() && newStatus === "queue") {
         try {
           await captureContext(taskId);
         } catch {

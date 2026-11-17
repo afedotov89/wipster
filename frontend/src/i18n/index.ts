@@ -26,7 +26,8 @@ interface I18nState {
 }
 
 function detectLocale(): Locale {
-  const saved = localStorage.getItem("wipster-locale");
+  let saved: string | null = null;
+  try { saved = localStorage.getItem("wipster-locale"); } catch {}
   if (saved === "en" || saved === "ru") return saved;
   const lang = navigator.language.toLowerCase();
   if (lang.startsWith("ru")) return "ru";
@@ -39,7 +40,7 @@ export const useI18n = create<I18nState>((set) => {
     locale: initial,
     t: locales[initial],
     setLocale: (locale) => {
-      localStorage.setItem("wipster-locale", locale);
+      try { localStorage.setItem("wipster-locale", locale); } catch {}
       set({ locale, t: locales[locale] });
     },
   };

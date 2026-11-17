@@ -1,0 +1,18 @@
+# REVIEW PROPOSAL ONLY. Replace only `location = / { try_files /index.html =404; }`
+# inside the existing Wipster HTTPS server. Preserve TLS, quotas, headers, neighbor
+# configs and maintenance units. All static/API routes then use existing `/`
+# proxy block and the immutable reviewed image. No server action authorized here.
+location = / {
+    proxy_pass http://127.0.0.1:18180;
+    proxy_http_version 1.1;
+    proxy_set_header Host wipster.fedotovs.net;
+    proxy_set_header X-Real-IP $remote_addr;
+    proxy_set_header X-Forwarded-For $remote_addr;
+    proxy_set_header X-Forwarded-Proto https;
+    proxy_set_header Connection '';
+    proxy_connect_timeout 3s;
+    proxy_read_timeout 65s;
+    proxy_send_timeout 65s;
+    proxy_request_buffering off;
+    proxy_buffering off;
+}

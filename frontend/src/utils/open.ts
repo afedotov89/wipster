@@ -1,3 +1,4 @@
+import { isTauri } from "@tauri-apps/api/core";
 import { openPath } from "@/utils/tauri";
 
 /**
@@ -19,6 +20,8 @@ export async function openTarget(target: string): Promise<void> {
   }
 
   const href = /^[a-z][a-z0-9+.-]*:\/\//i.test(text) ? text : `https://${text}`;
+  if (!/^https?:\/\//i.test(href)) throw new Error("Разрешены только веб-ссылки.");
+  if (!isTauri()) { window.open(href, "_blank", "noopener,noreferrer"); return; }
   try {
     const { open } = await import("@tauri-apps/plugin-shell");
     await open(href);

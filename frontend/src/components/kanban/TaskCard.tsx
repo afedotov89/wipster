@@ -1,3 +1,5 @@
+import { isTauri } from "@tauri-apps/api/core";
+import { reorderTasks } from "@/utils/tauri";
 import { useState } from "react";
 import { Box, Chip, IconButton, LinearProgress, Menu, MenuItem, ListItemIcon, Paper, Typography } from "@mui/material";
 import PlayArrowIcon from "@mui/icons-material/PlayArrow";
@@ -47,7 +49,7 @@ export default function TaskCard({ task, onMove }: Props) {
     transform,
     transition,
     isDragging,
-  } = useSortable({ id: task.id, data: { task } });
+  } = useSortable({ id: task.id, data: { task }, disabled: !isTauri() });
 
   const style = {
     transform: CSS.Transform.toString(transform),
@@ -81,9 +83,11 @@ export default function TaskCard({ task, onMove }: Props) {
     <Paper
       ref={setNodeRef}
       style={style}
-      {...attributes}
-      {...listeners}
+      {...(isTauri() ? attributes : { role: "button", tabIndex: 0 })}
+      {...(isTauri() ? listeners : {})}
       elevation={0}
+      aria-label={task.title}
+      onKeyDown={e => { if (e.key === "Enter") openDetail(task.id); }}
       data-task-card
       sx={{
         cursor: "grab",
@@ -202,11 +206,13 @@ export default function TaskCard({ task, onMove }: Props) {
           </Box>
         </Box>
         {/* Action buttons — vertical */}
-        {hasActions && (
+        {(hasActions || !isTauri()) && (
           <Box sx={{ display: "flex", flexDirection: "column", gap: 0.25, flexShrink: 0 }}>
+            {!isTauri() && <IconButton aria-label={"Действия: " + task.title} onClick={e => { e.stopPropagation(); setContextMenu({x:e.clientX,y:e.clientY}); }}>⋯</IconButton>}
             {actionIcon[task.status] && (
               <IconButton
                 size="small"
+                aria-label={task.status === "doing" ? "Завершить задачу" : "Начать задачу"}
                 onClick={(e) => {
                   e.stopPropagation();
                   const next = nextStatus[task.status];
@@ -219,6 +225,7 @@ export default function TaskCard({ task, onMove }: Props) {
             {task.status === "doing" && (
               <IconButton
                 size="small"
+                aria-label="Приостановить задачу"
                 onClick={(e) => {
                   e.stopPropagation();
                   onMove(task.id, "queue");
@@ -251,6 +258,11 @@ export default function TaskCard({ task, onMove }: Props) {
         anchorPosition={contextMenu ? { top: contextMenu.y, left: contextMenu.x } : undefined}
         slotProps={{ paper: { sx: { minWidth: 140 } } }}
       >
+        {!isTauri() && ["Выше", "Ниже"].map((label,direction) => <MenuItem key={label} onClick={() => {
+          const all=useTaskStore.getState().tasks.filter(t=>t.status===task.status); const index=all.findIndex(t=>t.id===task.id); const next=index+(direction===0?-1:1);
+          if(next>=0&&next<all.length) { [all[index],all[next]]=[all[next],all[index]]; void reorderTasks(all.map(t=>t.id)).then(()=>useTaskStore.getState().load(useProjectStore.getState().selectedProjectId??undefined)); }
+          setContextMenu(null);
+        }}>{label}</MenuItem>)}
         <MenuItem
           onClick={() => {
             if (isSelected) closeDetail();

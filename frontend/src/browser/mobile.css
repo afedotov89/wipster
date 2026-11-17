@@ -1,0 +1,95 @@
+.web-app { height: 100vh; height: 100dvh; display:flex;flex-direction:column;overflow:hidden;padding:env(safe-area-inset-top) env(safe-area-inset-right) env(safe-area-inset-bottom) env(safe-area-inset-left); }
+.web-app * { -webkit-tap-highlight-color:transparent; }
+.web-app button { touch-action:manipulation; }
+.web-app .MuiButtonBase-root { min-height:44px; }
+.web-app .MuiIconButton-root { min-width:44px; }
+.web-app .MuiInputBase-input { user-select:text; }
+.web-app .web-header { display:flex;align-items:center;gap:8px;padding:8px 16px;border-bottom:1px solid var(--overlay-2);flex-shrink:0; }
+.web-app .sync-indicator { text-transform:none; font-size:12px;max-width:50%;text-align:left;line-height:1.4; }
+.web-app .web-inline-error { display:flex;gap:8px;align-items:center;padding:8px 16px;background:var(--overlay-1); }
+.login-page { flex:1;display:flex;align-items:center;justify-content:center;padding:24px;overflow:auto; }
+.login-card { width:100%;max-width:420px;margin:auto; }
+.web-app [data-task-card] { overflow-wrap:anywhere; }
+.web-app .web-content { min-width:0; }
+.web-app .web-settings-nav { display:flex;gap:8px;flex-wrap:wrap;padding:8px 16px;border-bottom:1px solid var(--overlay-2); }
+.web-app .web-task-panel { min-width:0; }
+@media(max-width:899px) {
+  .web-app .web-header { padding:6px 12px;gap:4px; }
+  .web-app .sync-indicator { max-width:48%;font-size:11px; }
+  .web-app .web-task-panel { position:absolute;inset:0;z-index:5;background:var(--web-paper);border:0;overflow:auto; }
+  .web-app .MuiInputBase-input { font-size:max(16px,1rem) !important; }
+  .web-app .MuiTypography-h6 { overflow-wrap:anywhere;font-size:1.15rem;line-height:1.4; }
+  .web-app .web-task-panel > div { padding:16px; }
+  .web-app .web-task-panel fieldset { min-width:0; }
+  .web-app .web-inline-error { align-items:flex-start; }
+}
+@media(prefers-reduced-motion:reduce) { .web-app *, .web-app *::before, .web-app *::after { animation:none!important;transition:none!important; } }
+
+.web-app .web-task-toolbar { position:sticky;top:0;z-index:4;background:var(--web-paper);box-shadow:0 -16px 0 16px var(--web-paper); }
+.web-app .web-task-toolbar > :first-child { flex:1; min-width:0; flex-wrap:wrap; }
+.web-app .web-task-toolbar .MuiChip-root { max-width:100%; }
+.web-app .MuiButton-text { color:var(--text-strong); }
+@media(max-width:899px) {
+ .web-app .web-task-panel .MuiToggleButtonGroup-root { flex-wrap:wrap; }
+ .web-app .web-field-row { flex-wrap:wrap; }
+ .web-app .web-field-row .MuiTextField-root { min-width:100px; }
+ .web-app .web-field-row .row-actions { opacity:1;width:44px; }
+ .web-app .archive-delete { opacity:0.7!important; }
+}
+
+.web-app .web-project-title { height:auto; min-height:48px; padding-top:8px; padding-bottom:8px; align-items:flex-start; }
+.web-app .web-project-title h6 { min-width:0; overflow-wrap:anywhere; }
+.web-app .web-project-title > :first-child { flex-shrink:0; }
+.web-app .web-energy { display:grid; grid-template-columns:repeat(3,minmax(0,1fr)); }
+.web-app .web-energy button { font-size:0.7rem; padding:8px 4px; }
+@media(max-width:899px) {
+ .web-app .web-header { display:grid; grid-template-columns:44px minmax(0,1fr) 44px; gap:0 4px; }
+ .web-app .web-header > :nth-child(2) { font-size:1rem; }
+ .web-app .web-header > :last-child { grid-column:3; grid-row:1; }
+ .web-app .sync-indicator { grid-column:1 / -1; grid-row:2; max-width:none; justify-content:flex-start; font-size:0.75rem; padding:4px 8px; overflow-wrap:anywhere; }
+ .web-app .web-header .MuiSvgIcon-root { width:24px; height:24px; }
+ .web-app .web-task-panel { width:100%!important; }
+ .web-app .web-energy { grid-template-columns:repeat(auto-fit,minmax(min(100%,7em),1fr)); }
+ .web-app .web-energy button { min-width:0; }
+ .web-app .web-task-panel .MuiToggleButtonGroup-root:not(.web-choice-grid) > button { font-size:0.75rem; min-width:max-content; }
+ .web-app [role=tab] { font-size:0.7rem; overflow-wrap:anywhere; }
+}
+@media(max-width:899px) {
+ .web-app .MuiInputBase-root { font-size:max(16px,1rem)!important; }
+ .web-app .MuiInputBase-input { line-height:1.5!important; }
+}
+
+/* MUI drawers/dialogs/menus are portalled outside .web-app. */
+body.wipster-web .MuiButtonBase-root { min-height:44px; }
+body.wipster-web .MuiIconButton-root { min-width:44px; }
+body.wipster-web .MuiButton-text { color:var(--text-strong); }
+body.wipster-web .MuiMenuItem-root { white-space:normal; overflow-wrap:anywhere; }
+
+/* Web semantic foregrounds: primary remains the brand accent, not small text. */
+body.wipster-web .MuiButton-outlined:not(.Mui-disabled),
+body.wipster-web .MuiButton-text:not(.Mui-disabled),
+body.wipster-web .MuiTab-root { color:var(--web-control-fg); opacity:1; }
+body.wipster-web .MuiButton-outlined:not(.Mui-disabled) { border-color:var(--web-control-fg); }
+body.wipster-web .MuiTab-root.Mui-selected { color:var(--web-control-fg); font-weight:700; }
+body.wipster-web .MuiTabs-indicator { background:var(--web-control-fg); }
+body.wipster-web .MuiButtonBase-root:focus-visible { outline:3px solid var(--web-control-fg); outline-offset:2px; }
+body.wipster-web .MuiButton-root.Mui-disabled { color:var(--web-control-muted); border-color:var(--overlay-2); }
+.web-app .web-choice-grid { display:grid; grid-auto-rows:1fr; gap:8px; width:100%; }
+.web-app .web-priority { grid-template-columns:repeat(2,minmax(0,1fr)); }
+.web-app .web-energy { grid-template-columns:minmax(0,1fr); }
+.web-app .web-choice-grid > .MuiToggleButtonGroup-grouped { margin:0!important; border:1px solid var(--overlay-3)!important; border-radius:8px!important; min-width:0!important; padding:8px; font-size:0.85rem; overflow-wrap:anywhere; }
+.web-app .web-choice-grid > .Mui-selected { border-color:var(--web-control-fg)!important; color:var(--web-control-fg); box-shadow:inset 0 0 0 1px var(--web-control-fg); }
+.web-checklist { list-style:none; padding:0; margin:8px 0; display:flex; flex-direction:column; gap:12px; }
+.web-checklist-row { display:grid; grid-template-columns:44px minmax(0,1fr); padding:8px; gap:8px; border:1px solid var(--overlay-2); border-radius:8px; }
+.web-checklist-actions { grid-column:1 / -1; display:grid; grid-template-columns:repeat(2,minmax(0,1fr)); gap:4px; }
+.web-checklist-actions button { white-space:normal; line-height:1.5; }
+
+.web-checklist .MuiCheckbox-root { width:44px; min-width:44px; height:44px; }
+
+.web-app .web-settings-title { height:auto; min-height:48px; padding-top:8px; padding-bottom:8px; align-items:flex-start; }
+
+.web-app .web-inline-error { flex-wrap:wrap; }
+.web-app .web-inline-error > .MuiTypography-root { min-width:0; overflow-wrap:anywhere; flex:1 1 240px; }
+/* The explicit 3px focus ring carries keyboard focus. MUI's pulsating white
+   overlay can lower dark-theme text contrast during its brightest frame. */
+body.wipster-web .MuiButtonBase-root.Mui-focusVisible .MuiTouchRipple-root { opacity:0; }

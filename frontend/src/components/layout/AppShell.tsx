@@ -1,4 +1,6 @@
-import { Box } from "@mui/material";
+import { isTauri } from "@tauri-apps/api/core";
+import BrowserNavigation from "@/browser/BrowserNavigation";
+import { Button, Box } from "@mui/material";
 import { DndContext, DragOverlay, closestCenter } from "@dnd-kit/core";
 import Sidebar from "./Sidebar";
 import TaskCard from "@/components/kanban/TaskCard";
@@ -6,6 +8,7 @@ import { useBoardDnd } from "@/hooks/useBoardDnd";
 import ProjectView from "@/pages/ProjectView";
 import AllDoingPage from "@/pages/AllDoingView";
 import ArchiveView from "@/pages/ArchiveView";
+import { settingsTabId } from "@/pages/settings/SettingsNav";
 import SettingsSidebar from "@/pages/settings/SettingsSidebar";
 import SettingsPage from "@/pages/settings/SettingsPage";
 import TaskDetailPanel from "@/components/task/TaskDetailPanel";
@@ -24,7 +27,8 @@ interface Props {
 }
 
 export default function AppShell({ windowButtonsOverlap }: Props) {
-  const { view, detailOpen, detailExpanded, closeDetail, settingsOpen } = useUiStore();
+  const web = !isTauri();
+  const { view, detailOpen, detailExpanded, closeDetail, settingsOpen, settingsSection } = useUiStore();
   useSettingsShortcut();
   // One drag context around the sidebar and the board, so a task can be dragged
   // out of a column and onto any project.
@@ -57,7 +61,9 @@ export default function AppShell({ windowButtonsOverlap }: Props) {
       onDragStart={onDragStart}
       onDragEnd={onDragEnd}
     >
-    <Box sx={{ display: "flex", height: "100%", overflow: "hidden" }}>
+    <Box sx={{ display: "flex", flexDirection: web ? "column" : "row", height: "100%", overflow: "hidden", "--web-paper": (theme) => theme.palette.background.paper }}>
+      {web && <BrowserNavigation />}
+      {web && settingsOpen && <Box component="nav" aria-label="Разделы настроек" className="web-settings-nav">{(["general", "account", "appearance", "fields"] as const).map((section, i) => <Button key={section} id={settingsTabId(section)} aria-pressed={settingsSection===section} onClick={() => useUiStore.getState().setSettingsSection(section)}>{["Общие", "Аккаунт", "Оформление", "Поля"][i]}</Button>)}<Button onClick={() => useUiStore.getState().closeSettings()}>Закрыть настройки</Button></Box>}
       {/*
         `titleBarStyle: "Overlay"` lets the webview fill the whole window, so the
         band behind the traffic lights is painted by the app instead of the system
@@ -65,12 +71,12 @@ export default function AppShell({ windowButtonsOverlap }: Props) {
         the sidebar's clears the buttons, the content column is far enough right
         that nothing floats over it.
       */}
-      {settingsOpen ? (
+      {!web && (settingsOpen ? (
         <SettingsSidebar windowButtonsOverlap={windowButtonsOverlap} />
       ) : (
         <Sidebar windowButtonsOverlap={windowButtonsOverlap} />
-      )}
-      <Box sx={{ flex: 1, display: "flex", flexDirection: "column", overflow: "hidden" }}>
+      ))}
+      <Box className="web-content" sx={{ flex: 1, minHeight: 0, display: "flex", flexDirection: "column", overflow: "hidden", position: "relative" }}>
         <Box sx={{ display: "flex", flex: 1, minHeight: 0, overflow: "hidden" }}>
           <Box sx={{ flex: 1, overflow: "auto" }} onClick={handleBackgroundClick}>
             {settingsOpen ? (
@@ -85,6 +91,7 @@ export default function AppShell({ windowButtonsOverlap }: Props) {
           </Box>
           {detailOpen && !settingsOpen && (
             <Box
+              className={web ? "web-task-panel" : undefined}
               sx={{
                 // The panel grows into the window rather than being replaced by
                 // a bigger one: same element, same fields, same caret — only
@@ -105,7 +112,7 @@ export default function AppShell({ windowButtonsOverlap }: Props) {
         </Box>
       </Box>
       <SwapDialog />
-      <AgentPanel />
+      {!web && <AgentPanel />}
     </Box>
     <DragOverlay>{activeTask ? <TaskCard task={activeTask} onMove={() => {}} /> : null}</DragOverlay>
     </DndContext>

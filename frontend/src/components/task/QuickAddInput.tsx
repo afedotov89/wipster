@@ -1,3 +1,5 @@
+import { isTauri } from "@tauri-apps/api/core";
+import { Button } from "@mui/material";
 import { useState, useRef, useEffect } from "react";
 import { Box, TextField, InputAdornment } from "@mui/material";
 import AddIcon from "@mui/icons-material/Add";
@@ -21,7 +23,7 @@ export default function QuickAddInput() {
 
   // Auto-focus when project changes
   useEffect(() => {
-    if (selectedProjectId) {
+    if (selectedProjectId && isTauri()) {
       setTimeout(() => inputRef.current?.focus(), 100);
     }
   }, [selectedProjectId]);
@@ -63,13 +65,15 @@ export default function QuickAddInput() {
         inputRef={inputRef}
         fullWidth
         size="small"
-        placeholder={t.addTaskPlaceholder}
+        placeholder={isTauri() ? t.addTaskPlaceholder : "Добавить задачу…"}
         value={value}
         onChange={(e) => setValue(e.target.value)}
         onKeyDown={(e) => {
           if (e.key === "Enter") handleSubmit();
         }}
+        inputProps={{ "aria-label": t.addTaskPlaceholder }}
         InputProps={{
+          endAdornment: !isTauri() ? <Button disabled={!value.trim()} onClick={() => void handleSubmit()}>Добавить</Button> : undefined,
           startAdornment: (
             <InputAdornment position="start">
               <AddIcon fontSize="small" sx={{ opacity: 0.5 }} />

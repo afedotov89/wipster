@@ -128,16 +128,16 @@ def authenticate(request):
     if not auth.startswith('Bearer ') or len(auth) > 200:
         raise APIError('unauthorized', 401)
     session = DeviceSession.objects.select_related('account').filter(
-        pk=digest(auth[7:]), revoked_at__isnull=True, expires_at__gt=timezone.now()).first()
+        pk=digest(auth[7:]), channel="native", revoked_at__isnull=True, expires_at__gt=timezone.now()).first()
     if not session:
         raise APIError('unauthorized', 401)
     return session
 
 
-def issue_session(account, device_name, identity=None, *, token=None):
+def issue_session(account, device_name, identity=None, *, token=None, channel="native"):
     token = token or secrets.token_urlsafe(32)
     expires = timezone.now() + timedelta(days=30)
-    DeviceSession.objects.create(token_hash=digest(token), account=account,
+    DeviceSession.objects.create(token_hash=digest(token), account=account, channel=channel,
                                  device_name=str(device_name or 'Wipster')[:100], expires_at=expires)
     return {'token': token, 'account_id': str(account.id), 'phone': account.phone,
             'email': identity.email if identity else '', 'name': identity.name if identity else '',

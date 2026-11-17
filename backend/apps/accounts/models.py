@@ -10,6 +10,7 @@ class Account(models.Model):
 
 
 class DeviceSession(models.Model):
+    channel = models.CharField(max_length=8, default="native")
     token_hash = models.CharField(max_length=64, primary_key=True)
     account = models.ForeignKey(Account, on_delete=models.CASCADE, related_name='devices')
     device_name = models.CharField(max_length=100)
@@ -74,6 +75,7 @@ class GoogleAttempt(models.Model):
 
 class YandexAttempt(models.Model):
     """Durable browser/native rendezvous. Provider credentials are never retained."""
+    channel = models.CharField(max_length=8, default="native")
     id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
     proof_hash = models.CharField(max_length=64)
     state = models.CharField(max_length=43, unique=True)
@@ -86,3 +88,13 @@ class YandexAttempt(models.Model):
     subject = models.CharField(max_length=255, blank=True)
     email = models.EmailField(blank=True)
     name = models.CharField(max_length=200, blank=True)
+
+
+class WebBrowser(models.Model):
+    """Stable HttpOnly browser binding; auth mutations never replace its cookie."""
+    credential_hash = models.CharField(max_length=64, primary_key=True)
+    public_id = models.UUIDField(default=uuid.uuid4, unique=True)
+    generation = models.PositiveBigIntegerField(default=0)
+    pending_attempt = models.ForeignKey(YandexAttempt, null=True, on_delete=models.SET_NULL)
+    device = models.ForeignKey(DeviceSession, null=True, on_delete=models.SET_NULL)
+    expires_at = models.DateTimeField(db_index=True)

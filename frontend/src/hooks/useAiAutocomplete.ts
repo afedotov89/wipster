@@ -1,3 +1,4 @@
+import { isTauri } from "@tauri-apps/api/core";
 import { useState, useCallback, useRef } from "react";
 import { aiAutocomplete } from "@/utils/tauri";
 import { appLog } from "@/stores/logStore";
@@ -45,7 +46,7 @@ export function useAiAutocomplete(taskId: string | null, triggerChar = "/") {
         setState({ suggestion: null, loading: false, fieldName: null });
       }
 
-      if (value.endsWith(triggerChar) && taskId) {
+      if (isTauri() && value.endsWith(triggerChar) && taskId) {
         abortRef.current = false;
         setState({ suggestion: null, loading: true, fieldName });
         const t0 = Date.now();

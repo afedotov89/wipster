@@ -1,0 +1,87 @@
+name: PWA browser verification (no publication)
+on:
+  workflow_call:
+  pull_request:
+    paths: ['frontend/**', 'backend/**', 'deploy/pwa/**', '.github/workflows/pwa-ci.yml']
+permissions:
+  contents: read
+jobs:
+  browser:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    services:
+      postgres:
+        image: postgres:18-alpine@sha256:1018733457011bf88d81db98cf43aac6d5150afc18787dbe204771fedf80ff95
+        env:
+          POSTGRES_DB: wipster_pwa
+          POSTGRES_USER: pwa
+          POSTGRES_PASSWORD: ci-pwa-only
+        ports: ['5432:5432']
+        options: >-
+          --health-cmd "pg_isready -U pwa -d wipster_pwa"
+          --health-interval 2s --health-timeout 3s --health-retries 20
+    env:
+      DEBUG: 'true'
+      DEV_OTP_ENABLED: 'true'
+      OTP_PROVIDER: disabled
+      YANDEX_ENABLED: 'true'
+      YANDEX_CLIENT_ID: aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa
+      WIPSTER_YANDEX_TEST_PROVIDER: '1'
+      DATABASE_URL: postgresql://pwa:ci-pwa-only@127.0.0.1:5432/wipster_pwa
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020
+        with:
+          node-version: '22'
+          cache: npm
+          cache-dependency-path: frontend/package-lock.json
+      - uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065
+        with:
+          python-version: '3.13'
+      - run: mkdir -p docs/pwa-evidence/corrections-20261117
+      - run: pip install -r backend/requirements.lock
+      - run: pytest backend/tests_cloud -q
+      - run: python -m unittest discover -s deploy/pwa -p test_smoke_deadline.py -v
+      - run: python deploy/pwa/context.py "$RUNNER_TEMP/pwa-context.tar"
+      - run: npm ci && npm test && npm run build
+        working-directory: frontend
+      - run: python deploy/pwa/test-context.py
+      - run: npx playwright install --with-deps chromium webkit
+        working-directory: frontend
+      - run: python backend/manage.py migrate --noinput
+      - name: Real same-origin API/static with isolated provider fixture
+        run: |
+          set -euo pipefail
+          export PWA_ROOT="$GITHUB_WORKSPACE/frontend/dist"
+          gunicorn --chdir backend tests_cloud.yandex_mock_wsgi:application --bind 127.0.0.1:18088 --workers 2 --access-logfile /dev/null --error-logfile /dev/null &
+          api_pid=$!
+          (cd frontend && node scripts/serve-pwa-test.mjs) &
+          proxy_pid=$!
+          trap 'kill "$proxy_pid" "$api_pid" 2>/dev/null || true' EXIT
+          for attempt in {1..30}; do
+            if curl -fsS http://127.0.0.1:18089/readyz > /dev/null; then break; fi
+            sleep 1
+          done
+          curl -fsS http://127.0.0.1:18089/readyz
+          node frontend/scripts/test-auth-races.mjs
+          python backend/manage.py flush --noinput
+          (cd frontend && npx playwright test --grep-invert 'web control contrast')
+          python backend/manage.py flush --noinput
+          (cd frontend && npx playwright test --grep 'web control contrast' && node scripts/capture-loading.mjs)
+          python deploy/pwa/measure-contrast.py
+      - name: Bind static build to exact source
+        run: |
+          python - <<'PY'
+          import json, os, hashlib, pathlib
+          root=pathlib.Path('frontend/dist')
+          files={str(p.relative_to(root)):hashlib.sha256(p.read_bytes()).hexdigest() for p in root.rglob('*') if p.is_file()}
+          pathlib.Path('docs/pwa-evidence/ci-source.json').write_text(json.dumps({'source':os.environ['GITHUB_SHA'],'run':os.environ['GITHUB_RUN_ID'],'attempt':os.environ['GITHUB_RUN_ATTEMPT'],'files':files},indent=2))
+          PY
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        if: always()
+        with:
+          name: pwa-review-${{ github.sha }}-${{ github.run_attempt }}
+          path: |
+            docs/pwa-evidence/
+            frontend/dist/
+          retention-days: 14

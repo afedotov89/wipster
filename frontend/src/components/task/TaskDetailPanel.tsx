@@ -1,3 +1,6 @@
+import WebChecklist from "@/browser/WebChecklist";
+import { useWipGuard } from "@/hooks/useWipGuard";
+import { isTauri } from "@tauri-apps/api/core";
 import { Fragment, useEffect, useState, useCallback, useRef } from "react";
 import {
   DndContext,
@@ -215,7 +218,7 @@ function SortableStep({ id, item, index, isNext, onToggle, onRemove, onDraftText
   );
 }
 
-function ChecklistSortable({ items, onReorder, onToggle, onRemove, onDraftText, onCommitText }: {
+function NativeChecklistSortable({ items, onReorder, onToggle, onRemove, onDraftText, onCommitText }: {
   items: ChecklistItem[];
   onReorder: (items: ChecklistItem[]) => void;
   onToggle: (i: number) => void;
@@ -267,6 +270,10 @@ function ChecklistSortable({ items, onReorder, onToggle, onRemove, onDraftText, 
   );
 }
 
+function ChecklistSortable(props: Parameters<typeof NativeChecklistSortable>[0]) {
+  return isTauri() ? <NativeChecklistSortable {...props}/> : <WebChecklist {...props}/>;
+}
+
 export default function TaskDetailPanel() {
   const fields = useTaskFieldStore((s) => s.fields);
   const loadFields = useTaskFieldStore((s) => s.load);
@@ -274,6 +281,7 @@ export default function TaskDetailPanel() {
   // What this task holds in fields the user added, keyed by field id.
   const [customValues, setCustomValues] = useState<Record<string, unknown>>({});
 
+  const { safeMove } = useWipGuard();
   const { selectedTaskId, closeDetail } = useUiStore();
   const expanded = useUiStore((s) => s.detailExpanded);
   // The two columns wait for the room — but only when the room is on its way.
@@ -498,6 +506,7 @@ export default function TaskDetailPanel() {
             {t.priority}
           </Typography>
           <ToggleButtonGroup
+            className={!isTauri() ? "web-priority web-choice-grid" : undefined}
             exclusive
             size="small"
             value={task.priority}
@@ -513,6 +522,7 @@ export default function TaskDetailPanel() {
         </Box>
         );
       case "energy":
+        if (!isTauri()) return <Box><Typography variant="caption" color="text.secondary">{t.energy}</Typography><ToggleButtonGroup className="web-energy web-choice-grid" fullWidth exclusive value={task.energy} onChange={(_,v)=>void save("energy",v)} aria-label={t.energy}>{(["low","medium","high"] as const).map((level,i)=><ToggleButton key={level} value={level}>{["Низкая","Средняя","Высокая"][i]}</ToggleButton>)}</ToggleButtonGroup></Box>;
         return (
           <Box>
           <Typography variant="caption" color="text.secondary">
@@ -570,6 +580,7 @@ export default function TaskDetailPanel() {
         />
         );
       case "due":
+        if (!isTauri()) return <TextField fullWidth type="date" label={t.dueDate} value={due} InputLabelProps={{shrink:true}} onChange={e=>{setDue(e.target.value);void save("due",e.target.value);}} />;
         return (
           <Box>
           <Typography variant="caption" color="text.secondary" sx={{ mb: 0.5, display: "block" }}>
@@ -700,6 +711,7 @@ export default function TaskDetailPanel() {
               size="small"
               label={checklist.length === 0 ? t.firstStep : undefined}
               placeholder={checklist.length > 0 ? t.addStep : undefined}
+              inputProps={{"aria-label":"Новый шаг"}}
               value={newStep}
               onChange={(e) => {
                 setNewStep(e.target.value);
@@ -711,6 +723,7 @@ export default function TaskDetailPanel() {
               }}
               sx={{ "& .MuiInputBase-input": { fontSize: 13 } }}
             />
+            {!isTauri() && <Button disabled={!newStep.trim()} onClick={addStep}>Добавить шаг</Button>}
             {aiLoading && activeField === "next_step" && (
               <CircularProgress size={14} sx={{ position: "absolute", right: 12, top: 12 }} />
             )}
@@ -783,7 +796,7 @@ export default function TaskDetailPanel() {
     }
   };
 
-  const orderedFields = fields.filter((field) => field.enabled);
+  const orderedFields = fields.filter((field) => field.enabled && (isTauri() || field.kind !== "file_list"));
 
   // Where each field goes when the task fills the window. The rule lives in
   // `columnOf`, and every field can overrule it from the settings.
@@ -839,6 +852,7 @@ export default function TaskDetailPanel() {
       }}
     >
       <Box
+        className={!isTauri() ? "web-task-toolbar" : undefined}
         // Collapsed, a double-click is a shortcut to expand. Expanded, this row
         // is the window's titlebar, and double-clicking a titlebar is the
         // system's gesture for zooming the window — not ours to take.
@@ -872,7 +886,7 @@ export default function TaskDetailPanel() {
           )}
         </Box>
         <Box>
-          <IconButton
+          {isTauri() && <IconButton
             size="small"
             onClick={handleAiFill}
             disabled={aiFilling}
@@ -884,8 +898,8 @@ export default function TaskDetailPanel() {
             ) : (
               <AutoAwesomeIcon fontSize="small" />
             )}
-          </IconButton>
-          <IconButton
+          </IconButton>}
+          {isTauri() && <IconButton
             size="small"
             onClick={toggleExpanded}
             title={expanded ? t.collapseTask : t.expandTask}
@@ -895,8 +909,8 @@ export default function TaskDetailPanel() {
             ) : (
               <OpenInFullIcon sx={{ fontSize: 15 }} />
             )}
-          </IconButton>
-          <IconButton size="small" onClick={closeDetail} title={t.close}>
+          </IconButton>}
+          <IconButton aria-label={t.close} size="small" onClick={closeDetail} title={t.close}>
             <CloseIcon fontSize="small" />
           </IconButton>
         </Box>
@@ -931,11 +945,13 @@ export default function TaskDetailPanel() {
           <Button onMouseDown={e => e.preventDefault()} onClick={() => drafts.discard(field)}>{locale === 'ru' ? 'Использовать обновление' : 'Use updated value'}</Button>
           <Button onMouseDown={e => e.preventDefault()} onClick={() => void drafts.commit(field, true)}>{locale === 'ru' ? 'Сохранить мой черновик' : 'Save my draft'}</Button>
         </Alert>)}
+        {!isTauri() && <TextField select fullWidth label="Статус" value={task.status} onChange={e=>void safeMove(task.id,e.target.value as TaskStatus)}>{(["inbox","queue","doing","done"] as const).map(status=><MenuItem key={status} value={status}>{statusLabel(t,status)}</MenuItem>)}</TextField>}
         <TextField
           fullWidth
           variant="standard"
+          inputProps={{ "aria-label": "Название задачи" }}
           value={title}
-          multiline={expanded}
+          multiline={expanded || !isTauri()}
           onChange={(e) => setTitle(e.target.value)}
           onBlur={() => {
             if (title.trim() && title !== task.title) save("title", title.trim());

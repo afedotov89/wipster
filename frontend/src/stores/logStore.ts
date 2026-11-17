@@ -1,3 +1,4 @@
+import { isTauri } from "@tauri-apps/api/core";
 import { create } from "zustand";
 import { getBackendLogs } from "@/utils/tauri";
 
@@ -34,6 +35,7 @@ export const useLogStore = create<LogState>((set) => ({
 
 // Poll backend logs every 2 seconds
 setInterval(async () => {
+  if (!isTauri()) return;
   try {
     const logs = await getBackendLogs();
     if (logs.length > 0) {

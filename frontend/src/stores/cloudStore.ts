@@ -1,5 +1,6 @@
 import { create } from 'zustand';
-import { invoke, isTauri } from '@tauri-apps/api/core';
+import { isTauri } from '@tauri-apps/api/core';
+import { invoke } from '@/utils/tauri';
 import { useProjectStore } from './projectStore';
 import { useTaskStore } from './taskStore';
 import { useTaskFieldStore } from './taskFieldStore';
@@ -23,12 +24,15 @@ const initial: CloudStatus = { account: null, pending: 0, conflict: false, error
 
 // Refresh values without remounting the editor or clearing typed form state.
 export async function refreshCloudData() {
+  const browser = !isTauri() ? await import('@/browser/runtime') : null;
+  const account = browser ? await browser.current() : null;
   const [projects, tasks, doingTasks, archivedTasks] = await Promise.all([
     invoke<import('@/utils/tauri').Project[]>('list_projects'),
     invoke<import('@/utils/tauri').Task[]>('list_tasks', { projectId: useProjectStore.getState().selectedProjectId ?? undefined }),
     invoke<import('@/utils/tauri').Task[]>('get_doing_tasks'),
     invoke<import('@/utils/tauri').Task[]>('list_archived_tasks'),
   ]);
+  if (browser && account) await browser.assertCurrent(account);
   useProjectStore.setState({ projects });
   useTaskStore.setState({ tasks, doingTasks, archivedTasks });
   await Promise.all([useTaskFieldStore.getState().load(), useSettingsStore.getState().hydrate()]);

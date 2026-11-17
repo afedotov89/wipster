@@ -1,4 +1,11 @@
-import { invoke } from "@tauri-apps/api/core";
+import { invoke as nativeInvoke, isTauri } from "@tauri-apps/api/core";
+
+/** Shared domain port. Browser paths never invoke native IPC. */
+export async function invoke<T>(command: string, args?: Record<string, unknown>): Promise<T> {
+  if (isTauri()) return args === undefined ? nativeInvoke<T>(command) : nativeInvoke<T>(command, args);
+  const { browserInvoke } = await import("@/browser/commands");
+  return browserInvoke<T>(command, args);
+}
 import { listen } from "@tauri-apps/api/event";
 
 // ---- Types ----

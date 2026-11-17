@@ -1,3 +1,4 @@
+import { isTauri } from "@tauri-apps/api/core";
 import { useEffect, useRef } from "react";
 import { Box, Typography } from "@mui/material";
 import { useI18n } from "@/i18n";
@@ -39,6 +40,7 @@ export default function SettingsPage() {
   return (
     <Box sx={{ display: "flex", flexDirection: "column", height: "100%" }}>
       <Box
+        className={!isTauri() ? "web-settings-title" : undefined}
         data-tauri-drag-region
         sx={{
           px: 3,

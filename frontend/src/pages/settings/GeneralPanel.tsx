@@ -1,4 +1,5 @@
-import { Box, Typography, ToggleButtonGroup, ToggleButton, IconButton } from "@mui/material";
+import { isTauri } from "@tauri-apps/api/core";
+import { Box, Typography, ToggleButtonGroup, ToggleButton, IconButton, useMediaQuery } from "@mui/material";
 import RemoveIcon from "@mui/icons-material/Remove";
 import AddIcon from "@mui/icons-material/Add";
 import { useI18n } from "@/i18n";
@@ -8,6 +9,7 @@ import SettingsGroup from "./SettingsGroup";
 
 /** Language and the one rule the whole board obeys: how much may be in progress. */
 export default function GeneralPanel() {
+  const compactBrowser = useMediaQuery("(max-width:899px)") && !isTauri();
   const { t, locale, setLocale } = useI18n();
   const wipLimit = useSettingsStore((s) => s.wipLimit);
   const setWipLimit = useSettingsStore((s) => s.setWipLimit);
@@ -79,7 +81,7 @@ export default function GeneralPanel() {
 
       {/* How a task opens. Both ways are one click apart anyway — this is about
           which one you get without asking. */}
-      <Box>
+      {!compactBrowser && <Box>
         <Typography variant="body2" color="text.secondary" sx={{ mb: 1 }}>
           {t.taskDetailMode}
         </Typography>
@@ -101,7 +103,7 @@ export default function GeneralPanel() {
         <Typography variant="caption" color="text.secondary" sx={{ display: "block", mt: 0.75 }}>
           {t.taskDetailModeHint}
         </Typography>
-      </Box>
+      </Box>}
       </SettingsGroup>
     </Box>
   );
