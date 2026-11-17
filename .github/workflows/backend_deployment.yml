@@ -3,7 +3,7 @@ on:
   workflow_dispatch:
   push:
     branches: [main]
-    paths: ['backend/**', 'frontend/**', 'src-tauri/**', 'deploy/msf/**', '.github/workflows/backend_deployment.yml', '.github/workflows/cloud-ci.yml']
+    paths: ['backend/**', 'frontend/**', 'src-tauri/**', 'deploy/msf/**', '.github/workflows/backend_deployment.yml', '.github/workflows/cloud-ci.yml', '.github/workflows/pwa-ci.yml', 'deploy/pwa/**', '.dockerignore']
 permissions:
   contents: read
 concurrency:
@@ -12,7 +12,10 @@ concurrency:
 jobs:
   cloud-regressions:
     uses: ./.github/workflows/cloud-ci.yml
+  pwa-regressions:
+    uses: ./.github/workflows/pwa-ci.yml
   verify-build:
+    needs: [pwa-regressions]
     runs-on: ubuntu-24.04
     timeout-minutes: 20
     services:
@@ -38,8 +41,8 @@ jobs:
       archive: ${{ steps.package.outputs.archive }}
       ops: ${{ steps.package.outputs.ops }}
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-python@v5
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+      - uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065
         with:
           python-version: '3.13'
           cache: pip
@@ -53,8 +56,28 @@ jobs:
         run: |
           shellcheck deploy/msf/*.sh deploy/msf/nginx/*.sh
           python -m unittest discover -s deploy/msf -p 'test_*.py'
+      - name: Read exact mandatory PWA build manifest
+        uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093
+        with:
+          name: pwa-review-${{ github.sha }}-${{ github.run_attempt }}
+          path: ${{ runner.temp }}/pwa-reviewed
       - name: Build immutable amd64 backend
-        run: docker build --platform linux/amd64 --label "org.opencontainers.image.revision=$GITHUB_SHA" -t "wipster-backend:$GITHUB_SHA" backend
+        run: |
+          set -euo pipefail
+          python deploy/pwa/context.py "$RUNNER_TEMP/pwa-context.tar"
+          context_sha=$(sha256sum "$RUNNER_TEMP/pwa-context.tar" | cut -d' ' -f1)
+          docker build --platform linux/amd64 --label "io.wipster.context.sha256=$context_sha" -f deploy/pwa/Dockerfile --build-arg NODE_IMAGE=node:22-bookworm-slim@sha256:e9f565d32859f0cbfb52125eafe8be39390f24dac302dc3cdf566e8ba3ab21ee --build-arg PYTHON_IMAGE=python:3.13-slim@sha256:e48f59cdba69a3cbd9ed2cf0f348d90d45a8d350d98134cf1070bc106ee9ed90 --label "org.opencontainers.image.revision=$GITHUB_SHA" -t "wipster-backend:$GITHUB_SHA" - < "$RUNNER_TEMP/pwa-context.tar"
+          image_id=$(docker image inspect "wipster-backend:$GITHUB_SHA" --format '{{.Id}}')
+          python - "$RUNNER_TEMP/pwa-reviewed/docs/pwa-evidence/ci-source.json" <<'PYVERIFY'
+          import json,os,sys
+          p=json.load(open(sys.argv[1])); assert p['source']==os.environ['GITHUB_SHA'] and p['run']==os.environ['GITHUB_RUN_ID'] and p['attempt']==os.environ['GITHUB_RUN_ATTEMPT']
+          PYVERIFY
+          python deploy/pwa/image-smoke.py "$image_id" "$GITHUB_SHA" --deadline 180 --static-manifest "$RUNNER_TEMP/pwa-reviewed/docs/pwa-evidence/ci-source.json"
+          python - "$RUNNER_TEMP/pwa-context.tar" "$RUNNER_TEMP/pwa-reviewed/docs/pwa-evidence/ci-source.json" "$image_id" <<'PYPROOF'
+          import json,hashlib,os,sys,pathlib
+          context,static,image=sys.argv[1:]
+          pathlib.Path('pwa-provenance.json').write_text(json.dumps({'source':os.environ['GITHUB_SHA'],'run':os.environ['GITHUB_RUN_ID'],'attempt':os.environ['GITHUB_RUN_ATTEMPT'],'image':image,'context_sha256':hashlib.sha256(pathlib.Path(context).read_bytes()).hexdigest(),'static_manifest_sha256':hashlib.sha256(pathlib.Path(static).read_bytes()).hexdigest()},indent=2))
+          PYPROOF
       - name: Isolated container smoke and backup restore
         run: deploy/msf/smoke.sh "wipster-backend:$GITHUB_SHA"
       - name: Package verified image
@@ -72,21 +95,22 @@ jobs:
             echo "ops=$ops_sha"
           } >> "$GITHUB_OUTPUT"
           cat backend-image.json >> "$GITHUB_STEP_SUMMARY"
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
         with:
           name: backend-image-${{ github.sha }}
           path: |
             backend-image.tar.gz
             backend-image.json
+            pwa-provenance.json
           retention-days: 14
   deploy:
-    needs: [verify-build, cloud-regressions]
+    needs: [verify-build, cloud-regressions, pwa-regressions]
     if: github.ref == 'refs/heads/main' && vars.WIPSTER_DEPLOY_ENABLED == 'true'
     environment: wipster-production
     runs-on: ubuntu-24.04
     timeout-minutes: 20
     steps:
-      - uses: actions/download-artifact@v4
+      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093
         with:
           name: backend-image-${{ github.sha }}
       - name: Deploy reviewed immutable artifact through restricted SSH
