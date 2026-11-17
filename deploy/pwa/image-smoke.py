@@ -44,7 +44,7 @@ class Deadline:
 
 def cleanup_owned(api, db, network, timeout):
     results = []
-    for args in [('rm', '-f', api), ('rm', '-f', db), ('network', 'rm', network)]:
+    for args in [('rm', '-f', '-v', api), ('rm', '-f', '-v', db), ('network', 'rm', network)]:
         record = {'resource': args[-1], 'operation': list(args[:2])}
         try:
             result = subprocess.run(['docker', *args], capture_output=True, text=True, timeout=timeout)
@@ -63,8 +63,8 @@ def verify(args, clock, api, db, network, expected):
     assert meta['Config']['Labels']['org.opencontainers.image.revision'] == args.source
     assert meta['Os'] == 'linux' and meta['Architecture'] == 'amd64'
     clock.run('network', 'create', '--internal', network)
-    clock.run('run', '-d', '--platform', 'linux/amd64', '--pull', 'never', '--name', db, '--network', network, '--memory', '512m', '--cpus', '1',
-              '-e', 'POSTGRES_USER=pwa', '-e', 'POSTGRES_DB=pwa', '-e', 'POSTGRES_PASSWORD=isolated-only', POSTGRES)
+    clock.run('run', '-d', '--platform', 'linux/amd64', '--pull', 'never', '--name', db, '--network', network, '--memory', '512m', '--cpus', '1', '--pids-limit', '128',
+              '--shm-size', '64m', '--tmpfs', '/var/lib/postgresql:size=256m', '-e', 'POSTGRES_USER=pwa', '-e', 'POSTGRES_DB=pwa', '-e', 'POSTGRES_PASSWORD=isolated-only', POSTGRES)
     while clock.run('exec', db, 'pg_isready', '-U', 'pwa', check=False).returncode:
         clock.pause(.5)
     env = ['-e', 'DEBUG=false', '-e', 'SECRET_KEY=' + secrets.token_urlsafe(64), '-e',
