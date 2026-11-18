@@ -65,8 +65,12 @@ jobs:
           done
           curl -fsS http://127.0.0.1:18089/readyz
           node frontend/scripts/test-auth-races.mjs
-          python backend/manage.py flush --noinput
-          (cd frontend && npx playwright test --grep-invert 'web control contrast' --output=test-results/core)
+          # Each engine is an independent synthetic fixture population. Keep
+          # the real 20 starts/hour/IP limit inside every suite unchanged.
+          for engine in chromium webkit; do
+            python backend/manage.py flush --noinput
+            (cd frontend && npx playwright test --project="$engine" --grep-invert 'web control contrast' --output="test-results/core-$engine")
+          done
           python backend/manage.py flush --noinput
           (cd frontend && npx playwright test --grep 'web control contrast' --output=test-results/contrast && node scripts/capture-loading.mjs)
           python deploy/pwa/measure-contrast.py
