@@ -66,9 +66,9 @@ jobs:
           curl -fsS http://127.0.0.1:18089/readyz
           node frontend/scripts/test-auth-races.mjs
           python backend/manage.py flush --noinput
-          (cd frontend && npx playwright test --grep-invert 'web control contrast')
+          (cd frontend && npx playwright test --grep-invert 'web control contrast' --output=test-results/core)
           python backend/manage.py flush --noinput
-          (cd frontend && npx playwright test --grep 'web control contrast' && node scripts/capture-loading.mjs)
+          (cd frontend && npx playwright test --grep 'web control contrast' --output=test-results/contrast && node scripts/capture-loading.mjs)
           python deploy/pwa/measure-contrast.py
       - name: Bind static build to exact source
         run: |
@@ -85,4 +85,5 @@ jobs:
           path: |
             docs/pwa-evidence/
             frontend/dist/
+            frontend/test-results/
           retention-days: 14

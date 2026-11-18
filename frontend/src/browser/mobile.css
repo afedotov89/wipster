@@ -12,6 +12,7 @@
 .web-app [data-task-card] { overflow-wrap:anywhere; }
 .web-app .web-content { min-width:0; }
 .web-app .web-settings-nav { display:flex;gap:8px;flex-wrap:wrap;padding:8px 16px;border-bottom:1px solid var(--overlay-2); }
+.web-app .web-settings-nav button[aria-pressed="true"] { font-weight:700; text-decoration:underline; text-decoration-thickness:2px; text-underline-offset:5px; background-color:var(--overlay-1); }
 .web-app .web-task-panel { min-width:0; }
 @media(max-width:899px) {
   .web-app .web-header { padding:6px 12px;gap:4px; }

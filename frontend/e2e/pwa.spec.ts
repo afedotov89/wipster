@@ -47,7 +47,76 @@ async function addTask(page:Page,title:string) {
  await expect(page.getByRole('textbox',{name:'Название задачи'})).toHaveValue(title);
 }
 async function account(page:Page) {await page.getByRole('button',{name:'Настройки',exact:true}).click();}
+async function focusSync(page:Page,mode:string,afterFirstFocus?:()=>Promise<void>) {
+ const syncButton=page.getByRole('button',{name:'Синхронизировать сейчас'});
+ const requests:any[]=[];
+ const request=(r:any)=>{if(new URL(r.url()).pathname.startsWith('/api/v1/web/'))requests.push({at:Date.now(),event:'request',path:new URL(r.url()).pathname});};
+ const response=(r:any)=>{if(new URL(r.url()).pathname.startsWith('/api/v1/web/'))requests.push({at:Date.now(),event:'response',path:new URL(r.url()).pathname,status:r.status()});};
+ page.on('request',request);page.on('response',response);
+ await syncButton.evaluate(button=>{
+  const samples:any[]=[];
+  const sample=(event:string)=>{const active=document.activeElement;const css=getComputedStyle(button);samples.push({at:Date.now(),event,enabled:!(button as HTMLButtonElement).disabled,connected:button.isConnected,documentFocus:document.hasFocus(),visibility:document.visibilityState,active:active?.tagName+':'+active?.textContent?.slice(0,80),focused:active===button,focusVisible:button.matches(':focus-visible'),outline:css.outlineStyle,status:button.parentElement?.textContent?.slice(0,160)});if(samples.length>500)samples.shift();};
+  const focus=(e:Event)=>sample(e.type+':'+(e.target as Element)?.tagName);
+  window.addEventListener('focus',focus,true);window.addEventListener('blur',focus,true);
+  const timer=setInterval(()=>sample('poll'),50);sample('start');
+  (window as any).__focusDiagnostics={samples,stop:()=>{clearInterval(timer);window.removeEventListener('focus',focus,true);window.removeEventListener('blur',focus,true);sample('end');return samples;}};
+ });
+ try {
+  await page.keyboard.press('Tab');
+  // A foreground sync may disable the button between focus() and the check.
+  // Chromium then blurs it. Poll the whole enabled/focus/ring state again;
+  // a nested 10s toBeFocused wait would consume the outer retry deadline.
+  let first=true;
+  await expect.poll(async()=>{
+   if(await syncButton.isEnabled()){
+    await syncButton.focus();
+    if(first&&afterFirstFocus){first=false;await afterFirstFocus();}
+   }
+   return syncButton.evaluate(button=>({enabled:!(button as HTMLButtonElement).disabled,focused:document.activeElement===button,documentFocus:document.hasFocus(),outline:getComputedStyle(button).outlineStyle}));
+  },{timeout:10000,message:'idle sync control has keyboard focus and a visible ring'}).toEqual({enabled:true,focused:true,documentFocus:true,outline:'solid'});
+ } finally {
+  page.off('request',request);page.off('response',response);
+  const samples=await page.evaluate(()=>(window as any).__focusDiagnostics.stop());
+  const fs=await import('node:fs/promises');await fs.writeFile(new URL(`../../docs/pwa-evidence/corrections-20261117/${test.info().project.name}-${mode}-focus-diagnostics.json`,import.meta.url),JSON.stringify({samples,requests},null,2));
+ }
+}
 async function sync(page:Page) {await account(page);await page.getByRole('button',{name:'Синхронизировать сейчас'}).click();await expect(page.getByText('Все сохранённые изменения отправлены',{exact:true})).toBeVisible();await page.getByRole('button',{name:'Закрыть настройки'}).click();}
+
+test('keyboard focus recovers when foreground sync interrupts the idle focus check',async({page,context})=>{
+ await login(page,context,String(Date.now())+'97');await account(page);
+ const boot=await(await context.request.get(origin+'/api/v1/web/session')).json();
+ const fault=(action:string)=>context.request.post(origin+'/__pwa_test_control',{data:{account:boot.account.account_id,action}});
+ await focusSync(page,'busy-recovery',async()=>{
+  await fault('holdFirstPull');await page.evaluate(()=>window.dispatchEvent(new Event('focus')));
+  await expect(page.getByRole('button',{name:'Синхронизировать сейчас'})).toBeDisabled();
+  await expect(page.getByText('Синхронизируем…',{exact:true})).toBeVisible();
+  await fault('release');await fault('clear');
+  await expect(page.getByRole('button',{name:'Синхронизировать сейчас'})).toBeEnabled();
+ });
+});
+
+test('web settings mark the selected section in both themes at phone widths and large text',async({page,context})=>{
+ test.setTimeout(120000);await login(page,context,String(Date.now())+'98');
+ const geometry:any[]=[];
+ for(const mode of ['dark','light']){
+  await page.evaluate(mode=>{localStorage.setItem('wipster-theme-dark','mint');localStorage.setItem('wipster-theme-light','mint-light');localStorage.setItem('wipster-theme-mode',mode);},mode);
+  await page.reload();await expect(page.getByRole('button',{name:'Открыть проекты'})).toBeVisible();await account(page);
+  for(const [width,scale] of [[390,100],[320,100],[320,200]]){
+   await page.setViewportSize({width,height:844});await page.evaluate(scale=>{document.documentElement.style.fontSize=scale+'%';window.dispatchEvent(new Event('resize'));},scale);
+   for(const section of ['Общие','Аккаунт','Оформление','Поля']){
+    const nav=page.getByRole('navigation',{name:'Разделы настроек'}),button=nav.getByRole('button',{name:section,exact:true});
+    await button.click();await expect(button).toHaveAttribute('aria-pressed','true');await expect(nav.locator('[aria-pressed="true"]')).toHaveCount(1);
+    await expect(button).toHaveCSS('font-weight','700');await expect(button).toHaveCSS('text-decoration-line','underline');
+    for(const other of await nav.locator('[aria-pressed="false"]').all())await expect(other).toHaveCSS('text-decoration-line','none');
+    const sizes=await nav.evaluate(nav=>({width:innerWidth,scrollWidth:document.documentElement.scrollWidth,buttons:[...nav.querySelectorAll('button')].map(b=>({label:b.textContent,selected:b.getAttribute('aria-pressed'),rect:b.getBoundingClientRect().toJSON()}))}));
+    expect(sizes.scrollWidth).toBeLessThanOrEqual(width);for(const b of sizes.buttons){expect(b.rect.height).toBeGreaterThanOrEqual(44);expect(b.rect.width).toBeGreaterThanOrEqual(44);expect(b.rect.left).toBeGreaterThanOrEqual(0);expect(b.rect.right).toBeLessThanOrEqual(width);}
+    geometry.push({mode,scale,section,...sizes});await screenshot(page,`settings-${mode}-${width}-${scale}-${section}`);
+   }
+  }
+  await page.evaluate(()=>{document.documentElement.style.fontSize='';});await page.setViewportSize({width:390,height:844});await page.getByRole('button',{name:'Закрыть настройки'}).click();
+ }
+ const fs=await import('node:fs/promises');await fs.writeFile(new URL(`../../docs/pwa-evidence/corrections-20261117/${test.info().project.name}-settings-selection-geometry.json`,import.meta.url),JSON.stringify(geometry,null,2));
+});
 
 test('real mobile CRUD, cookie rendezvous, offline reload and second-device synchronization',async({page,context,browser})=>{
  const errors:string[]=[];page.on('pageerror',e=>errors.push(e.message));page.on('console',m=>{if(m.type()==='warning')console.log(m.text());});
@@ -328,7 +397,7 @@ test('web control contrast in dark mint and light mint across account offline an
  for(const mode of ['dark','light']){
   await page.evaluate(mode=>{localStorage.setItem('wipster-theme-dark','mint');localStorage.setItem('wipster-theme-light','mint-light');localStorage.setItem('wipster-theme-mode',mode);},mode);await page.reload();await expect(page.getByRole('button',{name:'Открыть проекты'})).toBeVisible();await selectProject(page,'Контраст');await capture(mode,'navigation');
   await account(page);await capture(mode,'account');
-  const syncButton=page.getByRole('button',{name:'Синхронизировать сейчас'});await page.keyboard.press('Tab');await expect(async()=>{await expect(syncButton).toBeEnabled();await syncButton.focus();await expect(syncButton).toBeFocused();}).toPass({timeout:10000});await expect(syncButton).toHaveCSS('outline-style','solid');await capture(mode,'account-focus');
+  const syncButton=page.getByRole('button',{name:'Синхронизировать сейчас'});await focusSync(page,mode);await capture(mode,'account-focus');
   const boot=await(await context.request.get(origin+'/api/v1/web/session')).json();const fault=async(action:string)=>context.request.post(origin+'/__pwa_test_control',{data:{account:boot.account.account_id,action}});await fault('holdFirstPull');await page.evaluate(()=>window.dispatchEvent(new Event('focus')));await expect(syncButton).toBeDisabled();await capture(mode,'account-busy');await fault('release');await fault('clear');await expect(syncButton).toBeEnabled();
   await offline(context,true);await page.getByRole('button',{name:'Синхронизировать сейчас'}).click();await expect(page.locator('#settings-panel .MuiAlert-root')).toBeVisible();await expect(page.getByRole('button',{name:'Синхронизировать сейчас'})).toBeEnabled();await page.evaluate(()=>{document.documentElement.style.fontSize='200%';window.dispatchEvent(new Event('resize'));});await capture(mode,'offline-200');await page.evaluate(()=>{document.documentElement.style.fontSize='';window.dispatchEvent(new Event('resize'));});await offline(context,false);
   await page.getByRole('button',{name:'Закрыть настройки'}).click();await page.getByText('Проверка контраста',{exact:true}).click();
