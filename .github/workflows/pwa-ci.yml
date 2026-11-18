@@ -24,9 +24,6 @@ jobs:
       DEBUG: 'true'
       DEV_OTP_ENABLED: 'true'
       OTP_PROVIDER: disabled
-      YANDEX_ENABLED: 'true'
-      YANDEX_CLIENT_ID: aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa
-      WIPSTER_YANDEX_TEST_PROVIDER: '1'
       DATABASE_URL: postgresql://pwa:ci-pwa-only@127.0.0.1:5432/wipster_pwa
     steps:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
@@ -50,6 +47,10 @@ jobs:
         working-directory: frontend
       - run: python backend/manage.py migrate --noinput
       - name: Real same-origin API/static with isolated provider fixture
+        env:
+          YANDEX_ENABLED: 'true'
+          YANDEX_CLIENT_ID: aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa
+          WIPSTER_YANDEX_TEST_PROVIDER: '1'
         run: |
           set -euo pipefail
           export PWA_ROOT="$GITHUB_WORKSPACE/frontend/dist"
