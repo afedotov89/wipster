@@ -8,7 +8,9 @@ permissions:
 jobs:
   browser:
     runs-on: ubuntu-24.04
-    timeout-minutes: 20
+    # Dependency downloads can exceed 20 minutes on the hosted Ubuntu mirror.
+    # Keep installation bounded and reserve time for the full browser suites.
+    timeout-minutes: 45
     services:
       postgres:
         image: postgres:18-alpine@sha256:1018733457011bf88d81db98cf43aac6d5150afc18787dbe204771fedf80ff95
@@ -43,7 +45,9 @@ jobs:
       - run: npm ci && npm test && npm run build
         working-directory: frontend
       - run: python deploy/pwa/test-context.py
-      - run: npx playwright install --with-deps chromium webkit
+      - name: Install browser binaries and system dependencies
+        timeout-minutes: 30
+        run: npx playwright install --with-deps chromium webkit
         working-directory: frontend
       - run: python backend/manage.py migrate --noinput
       - name: Real same-origin API/static with isolated provider fixture
