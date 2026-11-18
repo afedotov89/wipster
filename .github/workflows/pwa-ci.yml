@@ -45,6 +45,23 @@ jobs:
       - run: npm ci && npm test && npm run build
         working-directory: frontend
       - run: python deploy/pwa/test-context.py
+      - name: Use primary Ubuntu archive for browser dependencies
+        timeout-minutes: 2
+        run: |
+          # Only this ephemeral runner: keep suites, components and signing keys.
+          sudo python3 - <<'PY'
+          import pathlib, re
+          mirror = re.compile(r'https?://[a-z0-9.-]+\.ec2\.archive\.ubuntu\.com/ubuntu(?=[/\s]|$)')
+          for name in ['/etc/apt/sources.list', '/etc/apt/sources.list.d/ubuntu.sources']:
+              path = pathlib.Path(name)
+              if not path.exists():
+                  continue
+              original = path.read_text()
+              updated, count = mirror.subn('https://archive.ubuntu.com/ubuntu', original)
+              if count:
+                  path.write_text(updated)
+              print(f'{name}: {count} regional Ubuntu archive URLs replaced')
+          PY
       - name: Install browser binaries and system dependencies
         timeout-minutes: 30
         run: npx playwright install --with-deps chromium webkit
