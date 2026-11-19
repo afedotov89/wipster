@@ -52,7 +52,8 @@ jobs:
           sudo python3 - <<'PY'
           import pathlib, re
           mirror = re.compile(r'https?://[a-z0-9.-]+\.ec2\.archive\.ubuntu\.com/ubuntu(?=[/\s]|$)')
-          for name in ['/etc/apt/sources.list', '/etc/apt/sources.list.d/ubuntu.sources']:
+          # Newer hosted images select Ubuntu via mirror+file:/etc/apt/apt-mirrors.txt.
+          for name in ['/etc/apt/sources.list', '/etc/apt/sources.list.d/ubuntu.sources', '/etc/apt/apt-mirrors.txt']:
               path = pathlib.Path(name)
               if not path.exists():
                   continue
