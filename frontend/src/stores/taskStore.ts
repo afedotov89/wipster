@@ -91,11 +91,20 @@ export const useTaskStore = create<TaskState>((set, get) => ({
   },
 
   updateIfCurrent: async (id, field, expected, value) => {
+    const before = get().findTask(id);
     const result = await api.saveTaskDraft(id, field, expected, value);
+    // A CAS acknowledgement is a snapshot from the time of the save. Never
+    // replace a newer same-field refresh, another field's save, or a tombstone.
+    const apply = (t: Task) => {
+      if (t.id !== id) return t;
+      const key = field as keyof Task;
+      if ((t[key] ?? '') !== (expected ?? '') && (t[key] ?? '') !== (result.task[key] ?? '')) return t;
+      return { ...t, [field]: result.task[key], updated_at: t.updated_at === before?.updated_at ? result.task.updated_at : t.updated_at };
+    };
     set(s => ({
-      tasks: s.tasks.map(t => t.id === id ? result.task : t),
-      doingTasks: s.doingTasks.map(t => t.id === id ? result.task : t),
-      archivedTasks: s.archivedTasks.map(t => t.id === id ? result.task : t),
+      tasks: s.tasks.map(apply),
+      doingTasks: s.doingTasks.map(apply),
+      archivedTasks: s.archivedTasks.map(apply),
     }));
     return result;
   },

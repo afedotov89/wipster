@@ -194,4 +194,26 @@ describe("finding a task wherever it lives", () => {
     expect(findTask("nope")).toBeUndefined();
     expect(findTask(null)).toBeUndefined();
   });
+  it("does not replace a newer same-field refresh with a late CAS snapshot", async () => {
+    const task = { id: 'cas', title: 'Base', comment: 'Old', updated_at: '1' } as Task;
+    useTaskStore.setState({ tasks: [task] });
+    let finish!: (value: unknown) => void;
+    mockedInvoke.mockImplementation(() => new Promise(resolve => { finish = resolve; }));
+    const saving = useTaskStore.getState().updateIfCurrent('cas','title','Base','Mine');
+    useTaskStore.setState({ tasks: [{...task,title:'Remote chosen',comment:'Remote comment',updated_at:'3'}] });
+    finish({applied:true,task:{...task,title:'Mine',updated_at:'2'}});await saving;
+    expect(useTaskStore.getState().tasks[0]).toMatchObject({title:'Remote chosen',comment:'Remote comment',updated_at:'3'});
+  });
+  it("merges independent field acknowledgements arriving in reverse order without reverting either", async () => {
+    const task = { id: 'cas', title: 'Base', comment: 'Old', updated_at: '1' } as Task;
+    useTaskStore.setState({ tasks: [task] });
+    const finish: Array<(value: unknown) => void> = [];
+    mockedInvoke.mockImplementation(() => new Promise(resolve => { finish.push(resolve); }));
+    const title = useTaskStore.getState().updateIfCurrent('cas','title','Base','Mine');
+    const comment = useTaskStore.getState().updateIfCurrent('cas','comment','Old','New comment');
+    finish[1]({applied:true,task:{...task,title:'Mine',comment:'New comment',updated_at:'3'}});await comment;
+    finish[0]({applied:true,task:{...task,title:'Mine',updated_at:'2'}});await title;
+    expect(useTaskStore.getState().tasks[0]).toMatchObject({title:'Mine',comment:'New comment',updated_at:'3'});
+  });
+
 });

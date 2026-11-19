@@ -344,15 +344,70 @@ test('paged Unicode feed is staged atomically and remote deletion preserves an o
 });
 
 
+// Delay acknowledgement, not the transaction: IndexedDB and the outbox really
+// commit. The harness can release it after a later local intent has rendered.
+test('checklist latest reorder intent survives a delayed durable save and unrelated deletion',async({page,context,browser})=>{
+ test.setTimeout(90000);const subject=String(Date.now())+'92';await login(page,context,subject);await createProject(page,'Гонка шагов');await addTask(page,'Последний порядок');
+ for(const name of ['Материалы','Отправить','Проверить']){await page.getByLabel('Новый шаг',{exact:true}).fill(name);await page.getByRole('button',{name:'Добавить шаг',exact:true}).click();await expect(page.getByText(name,{exact:true})).toBeVisible();}
+ const original=[{text:'Материалы',done:false},{text:'Отправить',done:false},{text:'Проверить',done:false}];
+ await expect.poll(async()=>JSON.parse((Object.values((await localState(page)).entities).find((e:any)=>e.kind==='task') as any).data.checklist)).toEqual(original);
+ await page.getByRole('button',{name:'Закрыть',exact:true}).click();await sync(page);await page.getByText('Последний порядок',{exact:true}).click();
+ await page.evaluate(()=>{
+  const w=window as any,put=IDBObjectStore.prototype.put,desc=Object.getOwnPropertyDescriptor(IDBTransaction.prototype,'oncomplete')!;
+  const snapshots:any[]=[],held:Array<()=>void>=[];let armed=true;
+  const sample=(phase:string,state?:any)=>{const entity=state&&Object.values(state.entities??{}).find((e:any)=>e.kind==='task') as any;const drafts=state&&Object.entries(state.settings??{}).filter(([k])=>k.endsWith(':checklist'));snapshots.push({phase,at:performance.now(),task:entity&&{revision:entity.revision,value:entity.data?.checklist},drafts,rows:[...document.querySelectorAll('.web-checklist-row')].map((r:any)=>({identity:r.dataset.probeId??(r.dataset.probeId=crypto.randomUUID()),label:r.querySelector('input')?.getAttribute('aria-label'),done:r.querySelector('input')?.checked}))});};
+  IDBObjectStore.prototype.put=function(value:any,...args:any[]){if(this.transaction.db.name.startsWith('wipster-account-v1-')){sample('put',value);const t:any=Object.values(value.entities??{}).find((e:any)=>e.kind==='task');if(armed&&t?.data?.checklist===JSON.stringify([{text:'Отправить',done:false},{text:'Материалы',done:false},{text:'Проверить',done:false}])){armed=false;(this.transaction as any).__holdChecklist=true;}}return put.call(this,value,...args as [any]);};
+  Object.defineProperty(IDBTransaction.prototype,'oncomplete',{...desc,set(fn:any){desc.set!.call(this,function(this:any,event:Event){const done=()=>fn?.call(this,event);if(this.__holdChecklist){sample('held-completion');held.push(done);}else done();});}});
+  w.__checklistRace={snapshots,held:()=>held.length,sample,release:()=>{sample('release');for(const cb of held.splice(0))cb();},restore:()=>{IDBObjectStore.prototype.put=put;Object.defineProperty(IDBTransaction.prototype,'oncomplete',desc);}};
+ });
+ const order=()=>page.locator('.web-checklist-row input').evaluateAll(es=>es.map(e=>e.getAttribute('aria-label')));
+ await page.evaluate(()=>(window as any).__checklistRace.sample('initial'));
+ const identities=()=>page.locator('.web-checklist-row').evaluateAll(es=>es.map(e=>(e as HTMLElement).dataset.probeId));
+ const ids=await identities();
+ try{
+  await page.getByRole('button',{name:'Шаг 1 ниже',exact:true}).press('Enter');
+  await expect.poll(()=>page.evaluate(()=>(window as any).__checklistRace.held())).toBe(1);
+  await expect.poll(order).toEqual(['Выполнен шаг 1: Отправить','Выполнен шаг 2: Материалы','Выполнен шаг 3: Проверить']);await expect.poll(identities).toEqual([ids[1],ids[0],ids[2]]);
+  await page.getByRole('button',{name:'Шаг 2 выше',exact:true}).press('Enter');
+  await expect.poll(order).toEqual(['Выполнен шаг 1: Материалы','Выполнен шаг 2: Отправить','Выполнен шаг 3: Проверить']);await expect.poll(identities).toEqual(ids);
+  await page.evaluate(()=>(window as any).__checklistRace.release());
+  await page.getByRole('button',{name:'Удалить шаг 3',exact:true}).click();
+  await expect.poll(order).toEqual(['Выполнен шаг 1: Материалы','Выполнен шаг 2: Отправить']);await expect.poll(identities).toEqual(ids.slice(0,2));
+  await expect.poll(async()=>JSON.parse((Object.values((await localState(page)).entities).find((e:any)=>e.kind==='task') as any).data.checklist)).toEqual(original.slice(0,2));
+  const checkbox=page.getByRole('checkbox',{name:'Выполнен шаг 1: Материалы',exact:true});await checkbox.press('Space');await expect(checkbox).toBeChecked();
+  await test.info().attach('checklist-durable-completion-before-reload',{body:JSON.stringify(await page.evaluate(()=>(window as any).__checklistRace.snapshots),null,2),contentType:'application/json'});
+  await page.getByRole('button',{name:'Закрыть',exact:true}).click();await sync(page);await page.reload();await expect(page.getByRole('button',{name:'Открыть проекты'})).toBeVisible();await selectProject(page,'Гонка шагов');await page.getByText('Последний порядок',{exact:true}).click();
+  await expect.poll(order).toEqual(['Выполнен шаг 1: Материалы','Выполнен шаг 2: Отправить']);await expect(page.getByRole('checkbox',{name:'Выполнен шаг 1: Материалы',exact:true})).toBeChecked();
+  const second=await browser.newContext({viewport:{width:390,height:844},isMobile:true,hasTouch:true});
+  try{const phone=await second.newPage();await login(phone,second,subject);await selectProject(phone,'Гонка шагов');await phone.getByText('Последний порядок',{exact:true}).click();await expect(phone.locator('.web-checklist-row')).toHaveCount(2);await expect(phone.getByRole('checkbox',{name:'Выполнен шаг 1: Материалы',exact:true})).toBeChecked();await expect(phone.getByRole('checkbox',{name:'Выполнен шаг 2: Отправить',exact:true})).not.toBeChecked();}finally{await second.close();}
+  // Equal labels must keep independent row identity and done state too.
+  await page.getByLabel('Новый шаг',{exact:true}).fill('Материалы');await page.getByRole('button',{name:'Добавить шаг',exact:true}).click();
+  await page.getByRole('button',{name:'Шаг 3 выше',exact:true}).click();
+  await expect.poll(order).toEqual(['Выполнен шаг 1: Материалы','Выполнен шаг 2: Материалы','Выполнен шаг 3: Отправить']);
+  await page.getByRole('button',{name:'Шаг 2 выше',exact:true}).press('Enter');
+  await expect(page.getByRole('checkbox',{name:'Выполнен шаг 1: Материалы',exact:true})).not.toBeChecked();await expect(page.getByRole('checkbox',{name:'Выполнен шаг 2: Материалы',exact:true})).toBeChecked();
+  await page.getByRole('button',{name:'Удалить шаг 3',exact:true}).click();
+  await expect.poll(order).toEqual(['Выполнен шаг 1: Материалы','Выполнен шаг 2: Материалы']);
+  await expect(page.getByRole('checkbox',{name:'Выполнен шаг 1: Материалы',exact:true})).not.toBeChecked();await expect(page.getByRole('checkbox',{name:'Выполнен шаг 2: Материалы',exact:true})).toBeChecked();
+  await expect.poll(async()=>JSON.parse((Object.values((await localState(page)).entities).find((e:any)=>e.kind==='task') as any).data.checklist)).toEqual([{text:'Материалы',done:false},{text:'Материалы',done:true}]);
+ }finally{
+  const evidence=await page.evaluate(()=>{const h=(window as any).__checklistRace;if(!h)return null;h.sample('end');h.release();h.restore();return h.snapshots;});
+  await test.info().attach('checklist-durable-completion-order',{body:JSON.stringify(evidence,null,2),contentType:'application/json'});
+ }
+});
+
 test('accessible populated checklist persists and syncs with touch and keyboard',async({page,context})=>{
  test.setTimeout(120000);await login(page,context,String(Date.now())+'91');await createProject(page,'План проверки');await addTask(page,'Чек-лист с телефона');
  for(const name of ['Собрать материалы','Проверить результат','Отправить']){await page.getByLabel('Новый шаг',{exact:true}).fill(name);await page.getByRole('button',{name:'Добавить шаг',exact:true}).click();await expect(page.getByText(name,{exact:true})).toBeVisible();}
  await page.getByRole('checkbox',{name:/Выполнен шаг 1:/}).check();
  await page.getByRole('button',{name:'Изменить шаг 1',exact:true}).click();await page.getByLabel('Текст шага 1',{exact:true}).fill('Материалы собраны');await page.getByLabel('Текст шага 1',{exact:true}).press('Enter');
- await page.getByRole('button',{name:'Шаг 3 выше',exact:true}).click();await page.getByRole('button',{name:'Шаг 2 выше',exact:true}).click();
+ const rowOrder=()=>page.locator('.web-checklist-row input').evaluateAll(es=>es.map(e=>({label:e.getAttribute('aria-label'),done:(e as HTMLInputElement).checked})));
+ const assertOrder=async(names:string[],done:boolean[])=>{await expect.poll(rowOrder).toEqual(names.map((name,i)=>({label:`Выполнен шаг ${i+1}: ${name}`,done:done[i]})));};
+ await page.getByRole('button',{name:'Шаг 3 выше',exact:true}).click();await assertOrder(['Материалы собраны','Отправить','Проверить результат'],[true,false,false]);
+ await page.getByRole('button',{name:'Шаг 2 выше',exact:true}).click();await assertOrder(['Отправить','Материалы собраны','Проверить результат'],[false,true,false]);
  await expect(page.locator('.web-checklist-row').first()).toContainText('Отправить');
- await page.getByRole('button',{name:'Шаг 1 ниже',exact:true}).focus();await page.getByRole('button',{name:'Шаг 1 ниже',exact:true}).press('Enter');await expect(page.locator('.web-checklist-row').nth(1)).toContainText('Отправить');await page.getByRole('button',{name:'Шаг 2 выше',exact:true}).press('Enter');
- await page.getByRole('button',{name:'Удалить шаг 3',exact:true}).click();await expect(page.locator('.web-checklist-row')).toHaveCount(2);
+ await page.getByRole('button',{name:'Шаг 1 ниже',exact:true}).focus();await page.getByRole('button',{name:'Шаг 1 ниже',exact:true}).press('Enter');await assertOrder(['Материалы собраны','Отправить','Проверить результат'],[true,false,false]);await page.getByRole('button',{name:'Шаг 2 выше',exact:true}).press('Enter');await assertOrder(['Отправить','Материалы собраны','Проверить результат'],[false,true,false]);
+ await page.getByRole('button',{name:'Удалить шаг 3',exact:true}).click();await expect(page.locator('.web-checklist-row')).toHaveCount(2);await assertOrder(['Отправить','Материалы собраны'],[false,true]);
  const checkbox=page.getByRole('checkbox',{name:/Выполнен шаг 1:/});await checkbox.focus();await checkbox.press('Space');await expect(checkbox).toBeChecked();
  await page.getByRole('button',{name:'Изменить шаг 2',exact:true}).click();await page.getByLabel('Текст шага 2',{exact:true}).fill('Несохранённый ввод');await page.getByLabel('Текст шага 2',{exact:true}).press('Escape');await expect(page.getByRole('button',{name:'Закрыть',exact:true})).toBeVisible();await expect(page.locator('.web-checklist-row').nth(1)).toContainText('Материалы собраны');
  await page.getByRole('button',{name:'Закрыть',exact:true}).click();await sync(page);await page.reload();await expect(page.getByRole('button',{name:'Открыть проекты'})).toBeVisible();await selectProject(page,'План проверки');await page.getByText('Чек-лист с телефона',{exact:true}).click();
