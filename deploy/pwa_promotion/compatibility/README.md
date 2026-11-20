@@ -1,0 +1,9 @@
+# Retained old application compatibility gate
+
+This suite uses real, disposable PostgreSQL 18 and the exact old `6e275c26c1f9bcd2722445641a3c7982a8c56ef6` and new `e16d2918d263440e32d328fbc1c67273c36831da` backend code. Neither source nor migrations are edited. Dependencies come from the candidate's original lock file. CI pins the PostgreSQL image by digest. No provider request, production connection, user account or deployment occurs.
+
+The synthetic old login attempt is placed in the ready state locally; actual old Yandex finish/retry, session issuance/authentication and sync read/write run against the real database. This is a database compatibility proof, not a real provider OAuth or physical-phone acceptance test. There is no token-refresh endpoint in this backend; retained-token authentication and a fresh session/login are exercised.
+
+Nine cases cover old 0005 behavior, exact unwrapped 0006/7 NOT NULL INSERT failures for both changed models, wrapped migration on fresh and already migrated schema, old and new channel behavior, induced helper failure from both schema states, a real old INSERT observed waiting behind DDL then completing after commit, real five-second lock timeout and real sixty-second statement timeout. Failure tests compare all schema columns, defaults, migration records and retained data before/after. Successful migrations compare retained account, identity, session, attempt and latest sync rows exactly. Each test database is dropped in `finally`; logs and a case receipt remain. Child processes have bounded deadlines and cleanup.
+
+The runtime wrapper keeps migration and permanent native defaults in one PostgreSQL transaction. It changes no image bytes and does not reverse additive migrations on application rollback. Production installation and publication require a separate reviewed handoff. Until compatibility CI succeeds and the new runtime hash/source is bound in approval and validation, the draft is not publishable.

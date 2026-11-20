@@ -1,0 +1,17 @@
+[Unit]
+Description=Remove only expired Wipster Yandex attempts
+After=docker.service
+Requires=docker.service
+[Service]
+Type=oneshot
+User=fedotov
+Group=fedotov
+UMask=0077
+Environment=DOCKER_CONFIG=/srv/wipster/config/docker-cli
+ExecStart=/srv/wipster/bin/cleanup-auth.sh
+TimeoutStartSec=90s
+Nice=10
+NoNewPrivileges=true
+ProtectHome=true
+ProtectSystem=strict
+ReadWritePaths=/srv/wipster/runtime

@@ -1,0 +1,95 @@
+name: Promote exact reviewed Wipster PWA artifact
+on:
+  workflow_dispatch:
+    inputs:
+      promotion_source:
+        description: Exact main promotion-code commit approved in the rollout handoff
+        required: true
+        type: string
+permissions:
+  contents: read
+  actions: read
+concurrency:
+  group: wipster-msf-production
+  cancel-in-progress: false
+jobs:
+  verification:
+    uses: ./.github/workflows/pwa_promotion_ci.yml
+  promote:
+    needs: verification
+    if: github.repository == 'afedotov89/wipster' && github.ref == 'refs/heads/main' && vars.WIPSTER_DEPLOY_ENABLED == 'true'
+    environment: wipster-production
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    env:
+      EXPECTED_PROMOTION_SOURCE: ${{ inputs.promotion_source }}
+      DEPLOY_ENABLED: ${{ vars.WIPSTER_DEPLOY_ENABLED }}
+      DEPLOY_ENVIRONMENT: wipster-production
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+        with:
+          ref: ${{ github.workflow_sha }}
+          persist-credentials: false
+      - uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065
+        with:
+          python-version: '3.13'
+      - name: Test immutable PWA validator without network or server changes
+        run: python3 -m unittest discover -s deploy/pwa_promotion -p 'test_*.py' -v
+      - name: Fetch and validate only the exact approved original artifact
+        id: artifact
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: python3 deploy/pwa_promotion/promote.py fetch verified
+      - name: Deliver unchanged archive through existing immutable receiver
+        env:
+          DEPLOY_KEY: ${{ secrets.WIPSTER_MSF_DEPLOY_KEY }}
+          IMAGE_SOURCE: ${{ steps.artifact.outputs.source }}
+          CONFIG: ${{ steps.artifact.outputs.config }}
+          ARCHIVE: ${{ steps.artifact.outputs.archive }}
+          INSTALLED_OPS: ${{ steps.artifact.outputs.ops }}
+          INSTALLED_OPS_SOURCE: ${{ steps.artifact.outputs.ops_source }}
+        run: |
+          set -euo pipefail
+          umask 077
+          key_dir=$(mktemp -d)
+          trap 'rm -rf "$key_dir"' EXIT
+          printf '%s\n' "$DEPLOY_KEY" > "$key_dir/key"
+          cp deploy/pwa_promotion/msf_known_hosts "$key_dir/known_hosts"
+          unset DEPLOY_KEY
+          test "$(sha256sum verified/backend-image.tar.gz | cut -d' ' -f1)" = "$ARCHIVE"
+          ssh -T -p 47022 -o BatchMode=yes -o StrictHostKeyChecking=yes -o UpdateHostKeys=no \
+            -o HostKeyAlgorithms=ssh-ed25519 -o UserKnownHostsFile="$key_dir/known_hosts" \
+            -o GlobalKnownHostsFile=/dev/null -o IdentitiesOnly=yes -o ConnectTimeout=15 \
+            -i "$key_dir/key" fedotov@95.84.162.15 \
+            "deploy $IMAGE_SOURCE $CONFIG $ARCHIVE $INSTALLED_OPS $INSTALLED_OPS_SOURCE $GITHUB_RUN_ID" \
+            < verified/backend-image.tar.gz
+      - name: Verify exact application release before separately reviewed root switch
+        env:
+          IMAGE_SOURCE: ${{ steps.artifact.outputs.source }}
+        run: |
+          set -euo pipefail
+          curl --fail --silent --show-error --max-time 15 -D verified/ready-headers.txt \
+            https://wipster.fedotovs.net/readyz > /dev/null
+          python3 - <<'PY'
+          import os,re
+          from pathlib import Path
+          value=re.search(r'^x-wipster-release:\s*(\S+)',Path('verified/ready-headers.txt').read_text(),re.I|re.M)
+          assert value and re.fullmatch(r'[0-9TZ]+-'+os.environ['IMAGE_SOURCE']+r'-[0-9]+',value.group(1))
+          PY
+          curl --fail --silent --show-error --max-time 15 https://wipster.fedotovs.net/manifest.webmanifest > verified/live-manifest.json
+          python3 - <<'PY'
+          import hashlib,json
+          from pathlib import Path
+          expected=json.loads(Path('deploy/pwa_promotion/proofs/static.json').read_text())['files']['manifest.webmanifest']
+          assert hashlib.sha256(Path('verified/live-manifest.json').read_bytes()).hexdigest()==expected
+          PY
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        if: always()
+        with:
+          name: pwa-promotion-receipt-${{ github.run_id }}-${{ github.run_attempt }}
+          path: |
+            verified/pwa-promotion-receipt.json
+            verified/ready-headers.txt
+            verified/live-manifest.json
+          if-no-files-found: ignore
+

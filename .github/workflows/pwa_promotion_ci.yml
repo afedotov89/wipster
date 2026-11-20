@@ -1,0 +1,79 @@
+name: Check exact PWA promotion path without publication
+on:
+  workflow_call:
+  pull_request:
+    paths: ['deploy/pwa_promotion/**', '.github/workflows/promote_pwa.yml', '.github/workflows/pwa_promotion_ci.yml']
+  push:
+    branches: [main, pwa/promotion-verify-20261120]
+    paths: ['deploy/pwa_promotion/**', '.github/workflows/promote_pwa.yml', '.github/workflows/pwa_promotion_ci.yml']
+permissions:
+  contents: read
+  actions: read
+jobs:
+  validator:
+    needs: compatibility
+    runs-on: ubuntu-24.04
+    timeout-minutes: 12
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+        with:
+          persist-credentials: false
+      - uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065
+        with:
+          python-version: '3.13'
+      - run: python3 -m unittest discover -s deploy/pwa_promotion -p 'test_*.py' -v
+      - name: Verify actual immutable package, no image build or delivery
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: python3 deploy/pwa_promotion/promote.py verify-only verified
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: pwa-promotion-validation-${{ github.sha }}
+          path: verified/pwa-promotion-receipt.json
+
+  compatibility:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 12
+    services:
+      postgres:
+        image: postgres:18-alpine@sha256:1018733457011bf88d81db98cf43aac6d5150afc18787dbe204771fedf80ff95
+        env:
+          POSTGRES_DB: compat
+          POSTGRES_USER: pwa
+          POSTGRES_PASSWORD: synthetic-compat-only
+        ports: ['5432:5432']
+        options: >-
+          --memory 512m --cpus 1 --pids-limit 128
+          --health-cmd "pg_isready -U pwa -d compat"
+          --health-interval 2s --health-timeout 3s --health-retries 30
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+        with:
+          persist-credentials: false
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+        with:
+          ref: 6e275c26c1f9bcd2722445641a3c7982a8c56ef6
+          path: .compat-old
+          persist-credentials: false
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+        with:
+          ref: e16d2918d263440e32d328fbc1c67273c36831da
+          path: .compat-new
+          persist-credentials: false
+      - uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065
+        with:
+          python-version: '3.13'
+      - name: Install exact original candidate Python dependencies
+        run: pip install -r .compat-new/backend/requirements.lock
+      - name: Prove old application rollback on real PostgreSQL 18
+        env:
+          COMPAT_ADMIN_URL: postgresql://pwa:synthetic-compat-only@127.0.0.1:5432/compat
+        run: timeout 300 python3 deploy/pwa_promotion/compatibility/run.py --old "$GITHUB_WORKSPACE/.compat-old" --new "$GITHUB_WORKSPACE/.compat-new" --output compatibility-results
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        if: always()
+        with:
+          name: pwa-old-app-compatibility-${{ github.sha }}
+          path: |
+            compatibility-results/compatibility-receipt.json
+            compatibility-results/*.log
+          if-no-files-found: error

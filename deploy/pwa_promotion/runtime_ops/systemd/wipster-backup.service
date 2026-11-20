@@ -1,0 +1,18 @@
+[Unit]
+Description=Back up only Wipster PostgreSQL
+After=docker.service
+Requires=docker.service
+[Service]
+Type=oneshot
+User=fedotov
+Group=fedotov
+UMask=0077
+Environment=DOCKER_CONFIG=/srv/wipster/config/docker-cli
+ExecStart=/srv/wipster/bin/backup.sh
+TimeoutStartSec=10min
+Nice=10
+IOSchedulingClass=idle
+NoNewPrivileges=true
+ProtectHome=true
+ProtectSystem=strict
+ReadWritePaths=/srv/wipster/runtime /srv/wipster/backups

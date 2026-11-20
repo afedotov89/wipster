@@ -1,0 +1,177 @@
+{
+  "schema": 1,
+  "scope": "Reviewed immutable candidate; publication additionally requires exact reviewed main promotion source, existing deployment flag and production environment. This file alone grants no rollout authority.",
+  "repository": "afedotov89/wipster",
+  "repository_id": 1138317534,
+  "source": "e16d2918d263440e32d328fbc1c67273c36831da",
+  "source_branch": "pwa/verify-20261118-bea5274f",
+  "build_run": 44543132377,
+  "successful_run_attempt": 2,
+  "artifact_build_attempt": 1,
+  "workflow_id": 225302565,
+  "workflow_path": ".github/workflows/backend_deployment.yml",
+  "artifact_id": 14541275501,
+  "artifact_name": "backend-image-e16d2918d263440e32d328fbc1c67273c36831da",
+  "zip_bytes": 83527852,
+  "zip_sha256": "69b73da28f8101d437f5903da48f526b040fe2732cd3f1d7f2dc4207356f89af",
+  "image": "sha256:b8b4eceec5f98a379711a11180cf3277562cbde5f24137ed4a6f2299684e9e71",
+  "oci_manifest": "sha256:66285d6b9a03c4d175d8eb0ed514c50afee236760ab46a7a76b6bde700bc9cfa",
+  "archive_sha256": "ea480cb954ed4847991d65e2e3ce3eaf2a7ea13d6a1d3cfe0dc271418b910b4c",
+  "image_ops_sha256": "5c227d8dad7623d18dc6735f59c5806f5ea44dab52e9522b68d1d5d7a34cf055",
+  "context_sha256": "ffc398f97668eb0da2a02ae73b37bff12e39716166d5818cce35376100429b7e",
+  "static_manifest_sha256": "bd0775858eed9491861d442059fcd59206ec6c9d37ac6d3be9b80ec6d1be4ba7",
+  "runtime_file_count": 54,
+  "static_file_count": 14,
+  "context_file_count": 146,
+  "installed_ops_sha256": "5c227d8dad7623d18dc6735f59c5806f5ea44dab52e9522b68d1d5d7a34cf055",
+  "installed_ops_source": "c0e286df90c4dad6e766ea28ec46fa8fd94f0a96",
+  "current_jobs": [
+    {
+      "id": 135866404214,
+      "name": "cloud-regressions / native-and-frontend",
+      "run_attempt": 2,
+      "started_at": "2026-11-19T20:38:41Z",
+      "completed_at": "2026-11-19T20:45:35Z",
+      "conclusion": "success",
+      "steps_sha256": "3ddb2e78ca810d5cab3068dfe00b363c5a7537549b8e7c2972f84c2ac25d93b9"
+    },
+    {
+      "id": 135866406863,
+      "name": "pwa-regressions / browser",
+      "run_attempt": 2,
+      "started_at": "2026-11-19T14:23:06Z",
+      "completed_at": "2026-11-19T14:30:47Z",
+      "conclusion": "success",
+      "steps_sha256": "39b982cb559fb4933ff3eb2ddd6fca99bbac760da8614e8b0877e5dcdcb3fe25"
+    },
+    {
+      "id": 135866409466,
+      "name": "verify-build",
+      "run_attempt": 2,
+      "started_at": "2026-11-19T14:30:56Z",
+      "completed_at": "2026-11-19T14:33:53Z",
+      "conclusion": "success",
+      "steps_sha256": "d1d4499170d1b63bc91fca0815a2d1bf8b813ae67a8f37174d66be1d72d2ba03"
+    },
+    {
+      "id": 135866482348,
+      "name": "cloud-regressions / backend",
+      "run_attempt": 2,
+      "started_at": "2026-11-19T14:23:06Z",
+      "completed_at": "2026-11-19T14:23:53Z",
+      "conclusion": "success",
+      "steps_sha256": "87a92eb88e144ef508cef82f987ac65cf6a9c49d6f8deede62b9a897bec679d1"
+    },
+    {
+      "id": 135870504494,
+      "name": "deploy",
+      "run_attempt": 2,
+      "started_at": "2026-11-19T20:45:36Z",
+      "completed_at": "2026-11-19T20:45:35Z",
+      "conclusion": "skipped",
+      "steps_sha256": "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945"
+    }
+  ],
+  "origin_jobs": [
+    {
+      "id": 135626511353,
+      "name": "cloud-regressions / native-and-frontend",
+      "run_attempt": 1,
+      "started_at": "2026-11-19T14:23:04Z",
+      "completed_at": "2026-11-19T14:38:05Z",
+      "conclusion": "cancelled",
+      "steps_sha256": "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945"
+    },
+    {
+      "id": 135626511964,
+      "name": "pwa-regressions / browser",
+      "run_attempt": 1,
+      "started_at": "2026-11-19T14:23:06Z",
+      "completed_at": "2026-11-19T14:30:47Z",
+      "conclusion": "success",
+      "steps_sha256": "39b982cb559fb4933ff3eb2ddd6fca99bbac760da8614e8b0877e5dcdcb3fe25"
+    },
+    {
+      "id": 135626511977,
+      "name": "cloud-regressions / backend",
+      "run_attempt": 1,
+      "started_at": "2026-11-19T14:23:06Z",
+      "completed_at": "2026-11-19T14:23:53Z",
+      "conclusion": "success",
+      "steps_sha256": "87a92eb88e144ef508cef82f987ac65cf6a9c49d6f8deede62b9a897bec679d1"
+    },
+    {
+      "id": 135631538719,
+      "name": "verify-build",
+      "run_attempt": 1,
+      "started_at": "2026-11-19T14:30:56Z",
+      "completed_at": "2026-11-19T14:33:53Z",
+      "conclusion": "success",
+      "steps_sha256": "d1d4499170d1b63bc91fca0815a2d1bf8b813ae67a8f37174d66be1d72d2ba03"
+    },
+    {
+      "id": 135636163905,
+      "name": "deploy",
+      "run_attempt": 1,
+      "started_at": "2026-11-19T14:38:05Z",
+      "completed_at": "2026-11-19T14:38:05Z",
+      "conclusion": "skipped",
+      "steps_sha256": "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945"
+    }
+  ],
+  "inherited_names": [
+    "pwa-regressions / browser",
+    "cloud-regressions / backend",
+    "verify-build"
+  ],
+  "proofs": {
+    "proofs/ci-fixture.json": "85dbcec9c90f9fd45347c32eb3d7788a1888458d26e9c85aa8c397fc1c340373",
+    "proofs/context.json": "fce35cd8ad61b87ec60243a47f26f2f7977ed7d8e26876918b545ae75697405e",
+    "proofs/installed-ops.json": "7942fbfe1f4871629b9f88c195f73069c000f02b4064827c6a7fa841f1c5a4e6",
+    "proofs/runtime.json": "46fe996b04d8204d2002d51a8adedf6fd841a9dcfdae16c2c820fa8e70f05183",
+    "proofs/static.json": "bd0775858eed9491861d442059fcd59206ec6c9d37ac6d3be9b80ec6d1be4ba7"
+  },
+  "validator_dependency": {
+    "path": "deploy/msf/verify_archive.py",
+    "sha256": "af22dba9c48a6fea3068b7492898be6bd900514ef18e46a877355864e0760421"
+  },
+  "live_preflight": {
+    "observed_at": "2026-11-20T07:23:48.530947+00:00",
+    "expected_current": {
+      "link": "/srv/wipster/releases/20261113T215948Z-6e275c26c1f9bcd2722445641a3c7982a8c56ef6-1804140",
+      "record_path": "/srv/wipster/releases/20261113T215948Z-6e275c26c1f9bcd2722445641a3c7982a8c56ef6-1804140/record.json",
+      "record": {
+        "source": "6e275c26c1f9bcd2722445641a3c7982a8c56ef6",
+        "image": "sha256:339cc373a642ba4ee8025deff37f53226113668bac3f465483d93bb1b1109fdf",
+        "image_config_sha256": "sha256:e74a2124eabd450d8b814649c309e7f5881e7a87a00988a5b5a5a96dd0c81327",
+        "archive_sha256": "d9c9d5200908b145e8023a506fd149bb525e5f56f17711443a89edfb83b79e41",
+        "ops_sha256": "53d1cf98789d5a9e5d784e14f79fabb0fd80969a408c11a4b718734b807a2952",
+        "ops_source": "13c327e96be065614bbaf38b4629697d6d50a7a1",
+        "promotion_run": 43515377884,
+        "slot": "blue",
+        "created_at": "2026-11-13T21:59:48.079453+00:00"
+      },
+      "record_sha256": "a484905711bcd88f974720d7e72b4b2bd53382aa2adfdc9b10c3b6e3348ffff0"
+    },
+    "vhost_path": "/etc/nginx/sites-available/wipster",
+    "vhost_sha256": "d7d959efd363602ea07022989131af90152e3cd8b7ff75307e6355aec8147623",
+    "root_landing": {
+      "exact_text": "location = / { try_files /index.html =404; }",
+      "sha256": "fb8f0ba80d0a21310501c655921d6ad923cb75a216d309ec3c391312cb8efd80"
+    },
+    "proposal_sha256": "1527f86a9b76c58d0a8deea70441c840d5f1d39dfa5be9973d015d2a611149a9",
+    "operation_lock_path": "/srv/wipster/runtime/operation.lock",
+    "not_a_lock_reservation": true,
+    "refresh_before_rollout_required": true
+  },
+  "ssh_transport": {
+    "host": "95.84.162.15",
+    "port": 47022,
+    "user": "fedotov",
+    "known_hosts_file": "msf_known_hosts",
+    "known_hosts_sha256": "338afa9712e23f144370e2ab51557791e76946ee631fa9e8036db230a18d62d0",
+    "fingerprint": "SHA256:uiUMgtIxdTg7k3uHDKN/ZeoqQ4vNsgJovGazJTfhf0k",
+    "host_key_algorithm": "ssh-ed25519",
+    "trust": "existing trusted IP known_hosts public key matches actual host key from fresh strict authenticated msf readonly SSH; no keyscan/TOFU/new secret"
+  }
+}

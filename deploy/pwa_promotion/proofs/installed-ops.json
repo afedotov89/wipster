@@ -1,0 +1,51 @@
+{
+  "source": "c0e286df90c4dad6e766ea28ec46fa8fd94f0a96",
+  "ops_sha256": "5c227d8dad7623d18dc6735f59c5806f5ea44dab52e9522b68d1d5d7a34cf055",
+  "files": {
+    "images.env": "cdf38186dc1331688f53f42eb65b09233018db41055cf5f598494812359aadc1",
+    "proxy_wsgi.py": "11b8d0426ed8501c9f28a37b6b4c2f1312b0a6fdac38a94965ec34690190e3f9",
+    "test_release_failures.py": "948b261bc7a1d63ae73d078881e636e07c549782478c61956c4d2cedfdddc094",
+    "verify_loaded.py": "03edd3e02b93afc87f968e77b763b0f8055a3d057981cfeee17c662bce422eb3",
+    "api.env.example": "fae78d13935bc8adb169e483a3231dc57ac6b75909c872e9a4a34a6719dbaab2",
+    "test_callback_logging.py": "c041885e750ef4c5e816fac1d281905c366b3cb2c87264fa00ca789579410729",
+    "ops_hash.py": "91b001729bd45a41d97b80d872b9e9d8027fab7d9626a59148d0b8a57db2f139",
+    "test_cleanup.py": "7823db5f9578f923c31e54f99399d346d092456117a261f32b8534ebd729c1e0",
+    "smoke.sh": "69fcd759ec8d3f09b067299b258bd6cf745778b14c3056367aa7e6c5a1b8bdc7",
+    "cleanup-auth.sh": "851e594083ac0ddabfdb01d3b43c9a1af2fc8feab56546af8f729d3a44c05a98",
+    "prepare.sh": "dba4ec8450cf6a9c26fea9bd59dfc268e44796fa880e4b4b82856418657f4ce9",
+    "backup.sh": "ed2a856f282ac0c256f1ae11234f3830eef4ea81a38db8b8cd21aacea2e2b65d",
+    "compose.infra.yaml": "8513efc1251a024a63b7bafe23e33945e63768b05fb183cf3a8deb46f84b00af",
+    "verify_archive.py": "af22dba9c48a6fea3068b7492898be6bd900514ef18e46a877355864e0760421",
+    "receive.sh": "552c0abbb356bd849b580f18399f43a1104e42f5d38f5590ff8c38d292013af2",
+    "test_identity.py": "ea72288eee418c81b0ccb14bf673a62e15b8253e4addefc15dc7eb3faae00db0",
+    "release.sh": "184f89d0053f8f1c3dc9bc9881a18de34948d388c2eb504e27e21dd52090a8d2",
+    "test_ops.py": "009dea8873227e8006e94c28e27ebe5ecceef13e4db8cd5057b648483ca3a0b1",
+    "approved_artifact.json": "d268c5097a4258e5840f78675eaa5ac118b2f44e9211e5ad3afcd73efa746b6b",
+    "compose.app.yaml": "7eeefda584c313a9b9d9f1dd3c76b67959ba73f908edd04fcb6bbbcfcc32a879",
+    "validate_env.py": "467fb2b60aac81a86acd8610aa912a6bee87d2f8c5cd7c8f2f70c6842630f081",
+    "activate-ingress.sh": "b04721586abb251d6a531a47ed021dd03aa8b9d65c872347cc283982f3d2c2bb",
+    "systemd/wipster-auth-cleanup.service": "cfbc36bf487cf5032c0a19d44d478b8d77614a7e3f18e7ee9c13e1c5fc4580a2",
+    "systemd/wipster-auth-cleanup.timer": "b3e717cd772115ff8f92ff94fb3b00ef490d9bccccef8a4a8f35b3bc12816920",
+    "systemd/wipster-backup.timer": "3111d7905f0ede1a956961f7274e6a6d652cb5ab06d3040488a19e79d7efe101",
+    "systemd/wipster-backup.service": "bfc5fc0e31a38cb5eb8c466134513771154a4613c1e22e28e356761a8fd6fbd9",
+    "nginx/renew-wipster.sh": "fe03b1b66d9fcbf9fcdbf6ac7432015a3901c04c3eab9509c59a340876c27507",
+    "nginx/wipster.http.conf": "4726eb9637dfac227642f198738a566acdddddd59d9a33fb8c60588780fc6125",
+    "nginx/wipster.conf": "d7d959efd363602ea07022989131af90152e3cd8b7ff75307e6355aec8147623",
+    "nginx/gateway.conf": "28a49d2e2c83638a6b1e9b81db8443d28c3ab54f529dab919f8c1b3fcd080109",
+    "site/index.html": "d00ebf8adc7cafe235b101f0312da6d8f9be79774370681ba7f6b5c1cfc5f541"
+  },
+  "maintenance_units": {
+    "wipster-auth-cleanup.service": {
+      "sha256": "cfbc36bf487cf5032c0a19d44d478b8d77614a7e3f18e7ee9c13e1c5fc4580a2",
+      "docker_config_line": [
+        "Environment=DOCKER_CONFIG=/srv/wipster/config/docker-cli"
+      ]
+    },
+    "wipster-backup.service": {
+      "sha256": "bfc5fc0e31a38cb5eb8c466134513771154a4613c1e22e28e356761a8fd6fbd9",
+      "docker_config_line": [
+        "Environment=DOCKER_CONFIG=/srv/wipster/config/docker-cli"
+      ]
+    }
+  }
+}

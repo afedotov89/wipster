@@ -1,0 +1,8 @@
+[Unit]
+Description=Hourly expired Wipster auth attempt cleanup
+[Timer]
+OnCalendar=hourly
+RandomizedDelaySec=5min
+Persistent=true
+[Install]
+WantedBy=timers.target

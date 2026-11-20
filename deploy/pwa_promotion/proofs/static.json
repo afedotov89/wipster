@@ -1,0 +1,21 @@
+{
+  "source": "e16d2918d263440e32d328fbc1c67273c36831da",
+  "run": "44543132377",
+  "attempt": "1",
+  "files": {
+    "pwa-build.json": "1b84e8059103a81e9c14c167bc1b9169871f6b9d0f86cbe326095870d289825b",
+    "manifest.webmanifest": "8b03fdb888ef8c21d5ed6c9e947ece8296d5cbda2100ed0925cf5eb3770ff363",
+    "sw.js": "06e21411847aee6e1248992c29f21585539fe506df87d093d1e64a668b2c0211",
+    "index.html": "a36d2f18d80dce2fe3be79dff90bc991ed83c76ab116164c3237b9bb7dc18040",
+    "icons/icon-192.png": "d7bde4332512131f3aebb93fe55f09fa0c640ea75e1e2753d7ad7074076c2d6f",
+    "icons/apple-touch-icon.png": "a27625f495182d1e66549a9c35016a3449e7b82822a1aabdda65512fc9e8136c",
+    "icons/icon-512.png": "fed8223cea5a85d13cf93437f6b0a081400e344e4a35a8735ec606892b06def4",
+    "icons/maskable-512.png": "6406221ce07c0d2d126742da41da925aba7b853e313a1f379fbe104a8ca08a30",
+    "assets/commands-JdHUS3tx.js": "ed51e023cedaacec6d5d5c6273b853068f33dacec0e35eaf39c88b23a363fd43",
+    "assets/index-BK_TL7tW.css": "60e08075c6e5b5a20ee528390509081e307562230b0ddea8e2b79fc725aaa34b",
+    "assets/webview-DzNnJosN.js": "891630842c962b43b8a25484d3a4dcedd546b05287e6a6fcb83670ebfdb67f26",
+    "assets/index-BqXbkSdE.js": "c6d337c6de36af322345afb9a40a92ed7628071383137b0fcbe3242966514390",
+    "assets/index-CIs18Li2.js": "10c7db2fad61395a4f5ad1f682b1f29774b653cc5947974790149cf3fc7cf5f9",
+    "assets/index-BveBsTrz.js": "5c20e3df4de97e8f55aa9b362ec19dd38401b045983b45f135e223ac47b50429"
+  }
+}

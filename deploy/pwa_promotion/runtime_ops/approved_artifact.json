@@ -1,0 +1,16 @@
+{
+  "repository": "afedotov89/wipster",
+  "repository_id": 1138317534,
+  "source": "6e275c26c1f9bcd2722445641a3c7982a8c56ef6",
+  "build_run": 43466298535,
+  "build_attempt": 1,
+  "workflow_id": 225302565,
+  "workflow_path": ".github/workflows/backend_deployment.yml",
+  "artifact_id": 14058997045,
+  "artifact_name": "backend-image-6e275c26c1f9bcd2722445641a3c7982a8c56ef6",
+  "zip_sha256": "d33c1b3a09419a44d34ea2a2fa329697f4f01db26768f72bbb1d254f4be06a19",
+  "image": "sha256:e74a2124eabd450d8b814649c309e7f5881e7a87a00988a5b5a5a96dd0c81327",
+  "oci_manifest": "sha256:339cc373a642ba4ee8025deff37f53226113668bac3f465483d93bb1b1109fdf",
+  "archive_sha256": "d9c9d5200908b145e8023a506fd149bb525e5f56f17711443a89edfb83b79e41",
+  "ops_sha256": "45777881b3959f55acfa3553b523035297b56b6a29dead21bd0e0be051c18e8b"
+}
