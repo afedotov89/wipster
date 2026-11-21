@@ -15,6 +15,9 @@ from psycopg import sql
 OLD='6e275c26c1f9bcd2722445641a3c7982a8c56ef6'
 NEW='e16d2918d263440e32d328fbc1c67273c36831da'
 p=argparse.ArgumentParser();p.add_argument('--old',type=Path,required=True);p.add_argument('--new',type=Path,required=True);p.add_argument('--output',type=Path,required=True);args=p.parse_args()
+args.old = args.old.resolve()
+args.new = args.new.resolve()
+args.output = args.output.resolve()
 for path, expected in [(args.old,OLD),(args.new,NEW)]:
     assert subprocess.check_output(['git','rev-parse','HEAD'],cwd=path,text=True).strip()==expected
 url=os.environ['COMPAT_ADMIN_URL']; parsed=urlsplit(url)
@@ -97,7 +100,7 @@ try:
     migration=launch(db,args.new,'helper-overlap');until(lambda:(args.output/(db+'.paused')).exists())
     old=launch(db,args.old,'overlap-write')
     def blocked():
-        return admin.execute("SELECT count(*) FROM pg_stat_activity WHERE datname=%s AND application_name='overlap-write' AND query LIKE 'INSERT INTO%' AND wait_event_type='Lock' AND cardinality(pg_blocking_pids(pid))>0",(db,)).fetchone()[0]>0
+        return admin.execute("SELECT count(*) FROM pg_stat_activity WHERE datname=%s AND application_name='overlap-write' AND query LIKE %s AND wait_event_type='Lock' AND cardinality(pg_blocking_pids(pid))>0",(db,'INSERT INTO%')).fetchone()[0]>0
     until(blocked);assert old.poll() is None
     (args.output/(db+'.release')).write_text('commit allowed')
     wait(migration);wait(old);defaults(db)
