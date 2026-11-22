@@ -1,0 +1,63 @@
+{
+  "recorded_at": "2026-11-20T07:50:19.666085+00:00",
+  "actual_observation": "2026-11-20T07:23:48.530947+00:00",
+  "path": "/etc/nginx/sites-available/wipster",
+  "enabled_link": "/etc/nginx/sites-enabled/wipster",
+  "original_vhost_sha256": "d7d959efd363602ea07022989131af90152e3cd8b7ff75307e6355aec8147623",
+  "exact_original_root": {
+    "exact_text": "location = / { try_files /index.html =404; }",
+    "sha256": "fb8f0ba80d0a21310501c655921d6ad923cb75a216d309ec3c391312cb8efd80"
+  },
+  "proposal_sha256": "1527f86a9b76c58d0a8deea70441c840d5f1d39dfa5be9973d015d2a611149a9",
+  "proposed_vhost_sha256": "95ba076f48c1e343bf96a634829d69b108b15161a2e7e7a4911f02eb94798227",
+  "applicable_to_observed_root": true,
+  "applied": false,
+  "app_rollback": {
+    "retained_record": {
+      "link": "/srv/wipster/releases/20261113T215948Z-6e275c26c1f9bcd2722445641a3c7982a8c56ef6-1804140",
+      "record_path": "/srv/wipster/releases/20261113T215948Z-6e275c26c1f9bcd2722445641a3c7982a8c56ef6-1804140/record.json",
+      "record": {
+        "source": "6e275c26c1f9bcd2722445641a3c7982a8c56ef6",
+        "image": "sha256:339cc373a642ba4ee8025deff37f53226113668bac3f465483d93bb1b1109fdf",
+        "image_config_sha256": "sha256:e74a2124eabd450d8b814649c309e7f5881e7a87a00988a5b5a5a96dd0c81327",
+        "archive_sha256": "d9c9d5200908b145e8023a506fd149bb525e5f56f17711443a89edfb83b79e41",
+        "ops_sha256": "53d1cf98789d5a9e5d784e14f79fabb0fd80969a408c11a4b718734b807a2952",
+        "ops_source": "13c327e96be065614bbaf38b4629697d6d50a7a1",
+        "promotion_run": 43515377884,
+        "slot": "blue",
+        "created_at": "2026-11-13T21:59:48.079453+00:00"
+      },
+      "record_sha256": "a484905711bcd88f974720d7e72b4b2bd53382aa2adfdc9b10c3b6e3348ffff0"
+    },
+    "retained_image_present": {
+      "requested": "sha256:339cc373a642ba4ee8025deff37f53226113668bac3f465483d93bb1b1109fdf",
+      "available": true,
+      "identity": {
+        "id": "sha256:339cc373a642ba4ee8025deff37f53226113668bac3f465483d93bb1b1109fdf",
+        "source": "6e275c26c1f9bcd2722445641a3c7982a8c56ef6",
+        "os": "linux",
+        "architecture": "amd64"
+      }
+    },
+    "future_command_after_approval": "existing release.sh rollback 20261113T215948Z-6e275c26c1f9bcd2722445641a3c7982a8c56ef6-1804140 under existing operation lock; do not restore DB or reverse additive schema",
+    "caveat": "Resolved for exact helper b5651aab015186554b1517ac415e4221eb36b689afb6b2ee736fdd869f4e8293: actual PG18 local9/9 and original hosted44922797399/attempt1/e07183d source9/9; retain permanent native defaults, never reverse schema or restore DB for app rollback."
+  },
+  "root_rollback": "under separately reviewed bounded normal operation lock, restore exact saved original root block/full Wipster vhost snapshot only after current config identity match, nginx -t then graceful reload; preserve TLS/ACME/neighbours and all other routes/headers",
+  "previous_archive_metadata_observed_this_stage": {
+    "id": 14058997045,
+    "digest": "sha256:d33c1b3a09419a44d34ea2a2fa329697f4f01db26768f72bbb1d254f4be06a19",
+    "bytes": 83019058,
+    "expired": false,
+    "expires_at": "2026-11-27T16:49:29Z",
+    "source": "6e275c26c1f9bcd2722445641a3c7982a8c56ef6",
+    "build_run": 43466298535,
+    "not_downloaded_or_transferred": true
+  },
+  "runtime_bundle_source": "e07183d440c970b62136469706ba0afa571a1138",
+  "runtime_ops_sha256": "069fa5a3bb8f7c2a85f1e7fb854ac45175df7780a4898e551c49fb2d91321caa",
+  "snapshot_files": {
+    "before.conf": "d7d959efd363602ea07022989131af90152e3cd8b7ff75307e6355aec8147623",
+    "proposed.conf": "95ba076f48c1e343bf96a634829d69b108b15161a2e7e7a4911f02eb94798227",
+    "proposal.conf": "1527f86a9b76c58d0a8deea70441c840d5f1d39dfa5be9973d015d2a611149a9"
+  }
+}

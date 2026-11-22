@@ -46,8 +46,8 @@ jobs:
           IMAGE_SOURCE: ${{ steps.artifact.outputs.source }}
           CONFIG: ${{ steps.artifact.outputs.config }}
           ARCHIVE: ${{ steps.artifact.outputs.archive }}
-          INSTALLED_OPS: ${{ steps.artifact.outputs.ops }}
-          INSTALLED_OPS_SOURCE: ${{ steps.artifact.outputs.ops_source }}
+          REQUIRED_INSTALLED_OPS: ${{ steps.artifact.outputs.ops }}
+          REQUIRED_INSTALLED_OPS_SOURCE: ${{ steps.artifact.outputs.ops_source }}
         run: |
           set -euo pipefail
           umask 077
@@ -61,7 +61,7 @@ jobs:
             -o HostKeyAlgorithms=ssh-ed25519 -o UserKnownHostsFile="$key_dir/known_hosts" \
             -o GlobalKnownHostsFile=/dev/null -o IdentitiesOnly=yes -o ConnectTimeout=15 \
             -i "$key_dir/key" fedotov@95.84.162.15 \
-            "deploy $IMAGE_SOURCE $CONFIG $ARCHIVE $INSTALLED_OPS $INSTALLED_OPS_SOURCE $GITHUB_RUN_ID" \
+            "deploy $IMAGE_SOURCE $CONFIG $ARCHIVE $REQUIRED_INSTALLED_OPS $REQUIRED_INSTALLED_OPS_SOURCE $GITHUB_RUN_ID" \
             < verified/backend-image.tar.gz
       - name: Verify exact application release before separately reviewed root switch
         env:

@@ -23,8 +23,6 @@
   "runtime_file_count": 54,
   "static_file_count": 14,
   "context_file_count": 146,
-  "installed_ops_sha256": "5c227d8dad7623d18dc6735f59c5806f5ea44dab52e9522b68d1d5d7a34cf055",
-  "installed_ops_source": "c0e286df90c4dad6e766ea28ec46fa8fd94f0a96",
   "current_jobs": [
     {
       "id": 135866404214,
@@ -129,7 +127,11 @@
     "proofs/context.json": "fce35cd8ad61b87ec60243a47f26f2f7977ed7d8e26876918b545ae75697405e",
     "proofs/installed-ops.json": "7942fbfe1f4871629b9f88c195f73069c000f02b4064827c6a7fa841f1c5a4e6",
     "proofs/runtime.json": "46fe996b04d8204d2002d51a8adedf6fd841a9dcfdae16c2c820fa8e70f05183",
-    "proofs/static.json": "bd0775858eed9491861d442059fcd59206ec6c9d37ac6d3be9b80ec6d1be4ba7"
+    "proofs/static.json": "bd0775858eed9491861d442059fcd59206ec6c9d37ac6d3be9b80ec6d1be4ba7",
+    "proofs/delivery-ops.json": "604547d2274be82776dd646f9177f43280d684b8ce76872ba5fcc2becfff884f",
+    "proofs/compatibility.json": "ebbfebf82ef18f697bb1098d0784be8576507e11012c3686e6e05c2f0f546ca7",
+    "proofs/compatibility-ci.json": "9ec02b67fdfce6eecf2b714cd22d05dd34c49ec37a2106d50e646d500d3e93a2",
+    "proofs/root-plan.json": "cae567bafdc8b55a9c07b0cc77925af3419614d112128cf05c4f1b28e4a71ca4"
   },
   "validator_dependency": {
     "path": "deploy/msf/verify_archive.py",
@@ -173,5 +175,14 @@
     "fingerprint": "SHA256:uiUMgtIxdTg7k3uHDKN/ZeoqQ4vNsgJovGazJTfhf0k",
     "host_key_algorithm": "ssh-ed25519",
     "trust": "existing trusted IP known_hosts public key matches actual host key from fresh strict authenticated msf readonly SSH; no keyscan/TOFU/new secret"
-  }
+  },
+  "observed_installed_ops": {
+    "sha256": "5c227d8dad7623d18dc6735f59c5806f5ea44dab52e9522b68d1d5d7a34cf055",
+    "source": "c0e286df90c4dad6e766ea28ec46fa8fd94f0a96",
+    "observed_at": "2026-11-20T07:23:48.530947+00:00",
+    "not_current_reservation": true
+  },
+  "required_installed_ops_sha256": "069fa5a3bb8f7c2a85f1e7fb854ac45175df7780a4898e551c49fb2d91321caa",
+  "required_installed_ops_source": "e07183d440c970b62136469706ba0afa571a1138",
+  "compatibility_run": 44922797399
 }

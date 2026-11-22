@@ -92,7 +92,9 @@ class Metadata(unittest.TestCase):
         self.validate()
         self.assertEqual(self.pin['artifact_build_attempt'], 1)
         self.assertEqual(self.pin['successful_run_attempt'], 2)
-        self.assertEqual(self.pin['installed_ops_source'], 'c0e286df90c4dad6e766ea28ec46fa8fd94f0a96')
+        self.assertEqual(self.pin['observed_installed_ops']['source'], 'c0e286df90c4dad6e766ea28ec46fa8fd94f0a96')
+        self.assertEqual(self.pin['required_installed_ops_source'], 'e07183d440c970b62136469706ba0afa571a1138')
+        self.assertNotEqual(self.pin['required_installed_ops_sha256'], self.pin['image_ops_sha256'])
 
     def test_wrong_repository_source_run_attempt_or_gate(self):
         changes = [('run', 'id', 1), ('run', 'run_attempt', 1), ('run', 'head_sha', '0' * 40),
@@ -142,7 +144,7 @@ class Metadata(unittest.TestCase):
         p.promotion_context(env, head, self.pin)
         for key, value in [('EXPECTED_PROMOTION_SOURCE', 'b' * 40), ('GITHUB_WORKFLOW_SHA', 'b' * 40),
                            ('GITHUB_REPOSITORY_ID', '7'), ('GITHUB_REF', 'refs/heads/pwa/verify'), ('DEPLOY_ENABLED', 'false'),
-                           ('DEPLOY_ENVIRONMENT', 'dev'), ('GITHUB_EVENT_NAME', 'push'), ('GITHUB_RUN_ID', str(self.pin['build_run']))]:
+                           ('DEPLOY_ENVIRONMENT', 'dev'), ('GITHUB_EVENT_NAME', 'push'), ('GITHUB_RUN_ID', str(self.pin['build_run'])), ('GITHUB_RUN_ID', str(self.pin['compatibility_run']))]:
             with self.subTest(key=key), self.assertRaises(p.Invalid): p.promotion_context(env | {key: value}, head, self.pin)
 
     def test_approval_or_proof_tamper_rejected(self):

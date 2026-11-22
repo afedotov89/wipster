@@ -1,0 +1,52 @@
+{
+  "old_source": "6e275c26c1f9bcd2722445641a3c7982a8c56ef6",
+  "new_source": "e16d2918d263440e32d328fbc1c67273c36831da",
+  "postgres_major": 18,
+  "helper_sha256": "b5651aab015186554b1517ac415e4221eb36b689afb6b2ee736fdd869f4e8293",
+  "cases": [
+    {
+      "case": "old0005 actual old auth, durable Yandex finish/retry and sync read/write",
+      "result": "PASS"
+    },
+    {
+      "case": "unwrapped0006/7 both old INSERT fail exact SQLSTATE23502/channel",
+      "result": "PASS"
+    },
+    {
+      "case": "already migrated schema compatible defaults; old and new channels",
+      "result": "PASS"
+    },
+    {
+      "case": "fresh0005 atomic migrate retains rows and old/new behavior",
+      "result": "PASS"
+    },
+    {
+      "case": "induced failure rolls schema migration records defaults and data back",
+      "result": "PASS",
+      "already_migrated": false
+    },
+    {
+      "case": "induced failure rolls schema migration records defaults and data back",
+      "result": "PASS",
+      "already_migrated": true
+    },
+    {
+      "case": "old operation observed blocked by DDL then succeeds after atomic defaults commit",
+      "result": "PASS"
+    },
+    {
+      "case": "real lock timeout no partial schema/data",
+      "result": "PASS",
+      "seconds": 5.57940862199996
+    },
+    {
+      "case": "real statement timeout rolls migrations and defaults back",
+      "result": "PASS",
+      "seconds": 60.562624597000024
+    }
+  ],
+  "expected_cases": 9,
+  "synthetic_only": true,
+  "no_live_access": true,
+  "cleanup_databases": 8
+}

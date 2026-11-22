@@ -20,7 +20,7 @@ import zipfile
 
 ROOT = Path(__file__).resolve().parents[2]
 HERE = Path(__file__).resolve().parent
-APPROVAL_SHA256 = '4b00ef7415866994036441046b9b530306ed3f98635b824120ed33266a9f326e'
+APPROVAL_SHA256 = 'c8a644cac461716952ca1776220d69cb80b041d8efe1ae6d8d545eb3872da494'
 API = 'https://api.github.com/repos/afedotov89/wipster/'
 MAX_ZIP = 128 * 1024 * 1024
 MAX_ARCHIVE = 512 * 1024 * 1024
@@ -58,6 +58,94 @@ def decode(raw):
     return json.loads(raw, object_pairs_hook=unique_pairs)
 
 
+def validate_delivery_identity(pin, proofs):
+    delivery = proofs['proofs/delivery-ops.json']
+    baseline = proofs['proofs/installed-ops.json']
+    require((pin['required_installed_ops_sha256'], pin['required_installed_ops_source']) ==
+            (delivery['ops_sha256'], delivery['source']), 'required installed ops identity')
+    require(delivery['base_source'] == baseline['source']
+            and delivery['base_ops_sha256'] == baseline['ops_sha256'], 'delivery baseline')
+    require(delivery['ops_sha256'] != pin['image_ops_sha256']
+            and delivery['ops_sha256'] != baseline['ops_sha256'], 'image and delivery ops separation')
+    require(re.fullmatch('[0-9a-f]{40}', delivery['source'])
+            and delivery['source'] == delivery['compatibility']['source']
+            and delivery['source'] not in (pin['source'], baseline['source']), 'runtime source separation')
+
+
+def validate_compatibility_metadata(run, jobs, artifact, pin, proofs):
+    expected = proofs['proofs/compatibility-ci.json']
+    compat = proofs['proofs/delivery-ops.json']['compatibility']
+    require((run['id'], run['run_attempt'], run['head_sha'], run['event'], run['status'], run['conclusion']) ==
+            (compat['run'], compat['attempt'], compat['source'], 'push', 'completed', 'success')
+            and compat['run'] == pin['compatibility_run'], 'compatibility run')
+    require(run['path'] == '.github/workflows/pwa_promotion_ci.yml'
+            and run['head_branch'] == 'pwa/promotion-verify-20261120', 'compatibility workflow')
+    for name in ['repository', 'head_repository']:
+        require(run[name]['id'] == pin['repository_id']
+                and run[name]['full_name'] == pin['repository'], 'compatibility repository')
+    require(jobs['total_count'] == len(jobs['jobs']) == 2, 'compatibility jobs')
+    actual = {j['id']: j for j in jobs['jobs']}
+    original = {j['id']: j for j in expected['jobs']['jobs']}
+    require(set(actual) == set(original) and len(actual) == 2, 'compatibility job identities')
+    for key, j in actual.items():
+        require(j['run_id'] == compat['run'] and j['head_sha'] == compat['source']
+                and j['run_attempt'] == compat['attempt'] and j['status'] == 'completed'
+                and j['conclusion'] == 'success', 'compatibility job result')
+        require(all(j[k] == original[key][k] for k in ['name', 'started_at', 'completed_at', 'steps']),
+                'compatibility original job provenance')
+        require(j['steps'] and all(s['status'] == 'completed' and s['conclusion'] in ('success', 'skipped')
+                                  for s in j['steps']), 'compatibility step failure')
+    require({j['name'] for j in actual.values()} == {'compatibility', 'validator'}, 'compatibility gate')
+    for key in ['id', 'name', 'size_in_bytes', 'digest', 'workflow_run']:
+        require(artifact[key] == expected['artifact'][key], 'compatibility artifact provenance')
+    require(artifact['id'] == compat['artifact_id'] and artifact['digest'] == 'sha256:' + compat['artifact_sha256']
+            and not artifact['expired'], 'compatibility artifact')
+
+
+def validate_delivery_ops(pin, proofs, directory=HERE):
+    validate_delivery_identity(pin, proofs)
+    delivery = proofs['proofs/delivery-ops.json']
+    require(delivery['path'] == 'deploy/pwa_promotion/runtime_ops', 'runtime bundle path')
+    root = directory / 'runtime_ops'
+    paths = [p for p in root.rglob('*') if '__pycache__' not in p.parts]
+    require(not root.is_symlink() and not any(p.is_symlink() for p in paths), 'runtime bundle symlink')
+    files = {p.relative_to(root).as_posix(): digest(p) for p in paths if p.is_file()}
+    require(files == delivery['files'], 'runtime bundle file identity')
+    fingerprint = hashlib.sha256()
+    for name in sorted(files):
+        fingerprint.update(name.encode() + b'\0' + (root / name).read_bytes() + b'\0')
+    require(fingerprint.hexdigest() == delivery['ops_sha256'], 'runtime bundle fingerprint')
+    baseline = proofs['proofs/installed-ops.json']
+    require(set(files) == set(baseline['files']) | {'pwa_migrate.py'}
+            and sorted(k for k in files if files[k] != baseline['files'].get(k)) ==
+                delivery['changed_from_base'] == ['prepare.sh', 'pwa_migrate.py', 'release.sh'], 'minimal runtime diff')
+    require(delivery['maintenance_units'] == baseline['maintenance_units'], 'maintenance baseline')
+    for name, info in delivery['maintenance_units'].items():
+        require(files['systemd/' + name] == info['sha256'] and
+                (root / 'systemd' / name).read_text().splitlines().count(
+                    'Environment=DOCKER_CONFIG=/srv/wipster/config/docker-cli') == 1, 'maintenance bytes')
+    compat = delivery['compatibility']
+    require(files['pwa_migrate.py'] == compat['helper_sha256'], 'verified helper identity')
+    for name, expected in compat['harness_files'].items():
+        require(name in ['compatibility/run.py', 'compatibility/fixture.py'] and digest(directory / name) == expected,
+                'verified compatibility harness')
+    receipt = proofs['proofs/compatibility.json']
+    require(receipt['helper_sha256'] == compat['helper_sha256'] and receipt['new_source'] == pin['source']
+            and receipt['old_source'] == pin['live_preflight']['expected_current']['record']['source']
+            and receipt['postgres_major'] == 18 and receipt['synthetic_only'] and receipt['no_live_access']
+            and len(receipt['cases']) == receipt['expected_cases'] == 9
+            and all(c['result'] == 'PASS' for c in receipt['cases']) and receipt['cleanup_databases'] == 8,
+            'real compatibility proof')
+    ci = proofs['proofs/compatibility-ci.json']
+    validate_compatibility_metadata(ci['run'], ci['jobs'], ci['artifact'], pin, proofs)
+
+
+def delivery_outputs(pin, proofs):
+    validate_delivery_identity(pin, proofs)
+    return {'source': pin['source'], 'config': pin['image'], 'archive': pin['archive_sha256'],
+            'ops': pin['required_installed_ops_sha256'], 'ops_source': pin['required_installed_ops_source']}
+
+
 def load_approval(directory=HERE, repository=ROOT):
     raw = (directory / 'approved_pwa_artifact.json').read_bytes()
     require(hashlib.sha256(raw).hexdigest() == APPROVAL_SHA256, 'approval bytes changed')
@@ -86,8 +174,18 @@ def load_approval(directory=HERE, repository=ROOT):
     require(hashlib.sha256(canonical({'files': context['files']})).hexdigest()
             == context['fingerprint_sha256'], 'context file manifest')
     ops = proofs['proofs/installed-ops.json']
-    require(ops['source'] == pin['installed_ops_source']
-            and ops['ops_sha256'] == pin['installed_ops_sha256'], 'installed ops identity')
+    require(ops['source'] == pin['observed_installed_ops']['source']
+            and ops['ops_sha256'] == pin['observed_installed_ops']['sha256'], 'observed baseline ops identity')
+    validate_delivery_ops(pin, proofs, directory)
+    root_plan = proofs['proofs/root-plan.json']
+    for name, expected in root_plan['snapshot_files'].items():
+        require(name in ['before.conf', 'proposed.conf', 'proposal.conf']
+                and digest(directory / 'root' / name) == expected, 'root snapshot identity')
+    require(root_plan['original_vhost_sha256'] == pin['live_preflight']['vhost_sha256']
+            and root_plan['snapshot_files']['before.conf'] == root_plan['original_vhost_sha256']
+            and root_plan['snapshot_files']['proposed.conf'] == root_plan['proposed_vhost_sha256']
+            and root_plan['snapshot_files']['proposal.conf'] == root_plan['proposal_sha256']
+            and not root_plan['applied'], 'root plan observation')
     transport = pin['ssh_transport']
     require(transport['known_hosts_file'] == 'msf_known_hosts' and digest(directory / 'msf_known_hosts') == transport['known_hosts_sha256'], 'SSH host-key pin')
     return pin, proofs
@@ -292,6 +390,8 @@ def verify_package(path, target, pin, proofs, repository=ROOT):
 def promotion_context(env, head, pin):
     for key in ['GITHUB_SHA', 'GITHUB_WORKFLOW_SHA', 'EXPECTED_PROMOTION_SOURCE']:
         require(re.fullmatch('[0-9a-f]{40}', env.get(key, '')) and env[key] == head, 'promotion source')
+    require(head not in (pin['source'], pin['required_installed_ops_source'],
+                        pin['observed_installed_ops']['source']), 'distinct promotion code source')
     require(env.get('GITHUB_REPOSITORY') == pin['repository']
             and env.get('GITHUB_REPOSITORY_ID') == str(pin['repository_id']), 'promotion repository')
     require(env.get('GITHUB_REF') == 'refs/heads/main'
@@ -299,7 +399,7 @@ def promotion_context(env, head, pin):
             and env.get('DEPLOY_ENABLED') == 'true'
             and env.get('DEPLOY_ENVIRONMENT') == 'wipster-production', 'promotion main/environment/flag')
     require(re.fullmatch('[1-9][0-9]{0,19}', env.get('GITHUB_RUN_ID', '')) and
-            int(env['GITHUB_RUN_ID']) != pin['build_run'], 'promotion run')
+            int(env['GITHUB_RUN_ID']) not in (pin['build_run'], pin['compatibility_run']), 'promotion run')
     require(re.fullmatch('[1-9][0-9]{0,19}', env.get('GITHUB_RUN_ATTEMPT', '')), 'promotion attempt')
 
 
@@ -318,6 +418,10 @@ def main():
     origin = api(f"actions/runs/{pin['build_run']}/attempts/{pin['artifact_build_attempt']}/jobs?per_page=100", token)
     artifact = api('actions/artifacts/' + str(pin['artifact_id']), token)
     validate_metadata(run, jobs, origin, artifact, pin)
+    compat = proofs['proofs/delivery-ops.json']['compatibility']
+    validate_compatibility_metadata(api(f"actions/runs/{compat['run']}/attempts/{compat['attempt']}", token),
+        api(f"actions/runs/{compat['run']}/attempts/{compat['attempt']}/jobs?per_page=100", token),
+        api(f"actions/artifacts/{compat['artifact_id']}", token), pin, proofs)
     raw = args.output.with_suffix('.zip')
     try:
         download(raw, pin, token)
@@ -330,15 +434,21 @@ def main():
         'artifact_id': pin['artifact_id'], 'approval_sha256': APPROVAL_SHA256,
         'original_package': {k: pin[k] for k in ['zip_sha256', 'archive_sha256', 'image', 'oci_manifest',
             'image_ops_sha256', 'context_sha256', 'static_manifest_sha256']},
-        'installed_ops_sha256': pin['installed_ops_sha256'], 'installed_ops_source': pin['installed_ops_source'],
-        'promotion_source': head, 'promotion_run': os.environ.get('GITHUB_RUN_ID'),
-        'promotion_attempt': os.environ.get('GITHUB_RUN_ATTEMPT'), 'validated_archive_identity': identity,
+        'observed_installed_ops': pin['observed_installed_ops'],
+        'required_installed_ops_sha256': pin['required_installed_ops_sha256'],
+        'required_installed_ops_source': pin['required_installed_ops_source'],
+        'compatibility_proof': proofs['proofs/delivery-ops.json']['compatibility'],
+        'promotion_source': head,
+        'promotion_run': os.environ.get('GITHUB_RUN_ID') if args.mode == 'fetch' else None,
+        'promotion_attempt': os.environ.get('GITHUB_RUN_ATTEMPT') if args.mode == 'fetch' else None,
+        'verification_run': os.environ.get('GITHUB_RUN_ID') if args.mode == 'verify-only' else None,
+        'verification_attempt': os.environ.get('GITHUB_RUN_ATTEMPT') if args.mode == 'verify-only' else None,
+        'validated_archive_identity': identity,
         'live_preflight_is_observation_not_reservation': True}
     (args.output / 'pwa-promotion-receipt.json').write_text(json.dumps(receipt, indent=2) + '\n')
     if args.mode == 'fetch':
         with open(os.environ['GITHUB_OUTPUT'], 'a') as output:
-            for key, value in {'source': pin['source'], 'config': pin['image'], 'archive': pin['archive_sha256'],
-                              'ops': pin['installed_ops_sha256'], 'ops_source': pin['installed_ops_source']}.items():
+            for key, value in delivery_outputs(pin, proofs).items():
                 output.write(f'{key}={value}\n')
     print('Exact PWA artifact, complete same-source CI, inherited provenance and immutable image verified')
 
