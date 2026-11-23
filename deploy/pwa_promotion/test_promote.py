@@ -135,15 +135,16 @@ class Metadata(unittest.TestCase):
             f = copy.deepcopy(self.fixture); f['artifact']['workflow_run'][field] = value
             with self.subTest(field=field), self.assertRaises(p.Invalid): self.validate(f)
 
-    def test_promotion_requires_exact_new_main_source_environment_and_flag(self):
+    def test_promotion_requires_exact_new_main_source_environment_and_closed_flag(self):
         head = 'a' * 40
         env = {'GITHUB_SHA': head, 'GITHUB_WORKFLOW_SHA': head, 'EXPECTED_PROMOTION_SOURCE': head,
                'GITHUB_REPOSITORY': self.pin['repository'], 'GITHUB_REPOSITORY_ID': str(self.pin['repository_id']),
-               'GITHUB_REF': 'refs/heads/main', 'GITHUB_EVENT_NAME': 'workflow_dispatch', 'DEPLOY_ENABLED': 'true',
+               'GITHUB_REF': 'refs/heads/main', 'GITHUB_EVENT_NAME': 'workflow_dispatch', 'DEPLOY_ENABLED': 'false',
+               'GITHUB_WORKFLOW_REF': 'afedotov89/wipster/.github/workflows/promote_pwa.yml@refs/heads/main',
                'DEPLOY_ENVIRONMENT': 'wipster-production', 'GITHUB_RUN_ID': '99999999999', 'GITHUB_RUN_ATTEMPT': '1'}
         p.promotion_context(env, head, self.pin)
         for key, value in [('EXPECTED_PROMOTION_SOURCE', 'b' * 40), ('GITHUB_WORKFLOW_SHA', 'b' * 40),
-                           ('GITHUB_REPOSITORY_ID', '7'), ('GITHUB_REF', 'refs/heads/pwa/verify'), ('DEPLOY_ENABLED', 'false'),
+                           ('GITHUB_REPOSITORY_ID', '7'), ('GITHUB_REF', 'refs/heads/pwa/verify'), ('DEPLOY_ENABLED', 'true'),
                            ('DEPLOY_ENVIRONMENT', 'dev'), ('GITHUB_EVENT_NAME', 'push'), ('GITHUB_RUN_ID', str(self.pin['build_run'])), ('GITHUB_RUN_ID', str(self.pin['compatibility_run']))]:
             with self.subTest(key=key), self.assertRaises(p.Invalid): p.promotion_context(env | {key: value}, head, self.pin)
 

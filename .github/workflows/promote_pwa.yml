@@ -17,7 +17,11 @@ jobs:
     uses: ./.github/workflows/pwa_promotion_ci.yml
   promote:
     needs: verification
-    if: github.repository == 'afedotov89/wipster' && github.ref == 'refs/heads/main' && vars.WIPSTER_DEPLOY_ENABLED == 'true'
+    if: github.repository == 'afedotov89/wipster' && github.ref == 'refs/heads/main' && github.event_name == 'workflow_dispatch' && vars.WIPSTER_DEPLOY_ENABLED == 'false'
+    permissions:
+      contents: read
+      actions: read
+      statuses: read
     environment: wipster-production
     runs-on: ubuntu-24.04
     timeout-minutes: 30
@@ -39,7 +43,12 @@ jobs:
         id: artifact
         env:
           GH_TOKEN: ${{ github.token }}
-        run: python3 deploy/pwa_promotion/promote.py fetch verified
+        run: python3 deploy/pwa_promotion/promote.py fetch verified --approval-wait-seconds 300
+      - name: Recheck latest run approval and exact main without deployment key
+        id: authorization
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: python3 deploy/pwa_promotion/promote.py check-delivery verified
       - name: Deliver unchanged archive through existing immutable receiver
         env:
           DEPLOY_KEY: ${{ secrets.WIPSTER_MSF_DEPLOY_KEY }}
@@ -51,6 +60,7 @@ jobs:
         run: |
           set -euo pipefail
           umask 077
+          python3 deploy/pwa_promotion/promote.py transport-ready verified
           key_dir=$(mktemp -d)
           trap 'rm -rf "$key_dir"' EXIT
           printf '%s\n' "$DEPLOY_KEY" > "$key_dir/key"
@@ -89,6 +99,7 @@ jobs:
           name: pwa-promotion-receipt-${{ github.run_id }}-${{ github.run_attempt }}
           path: |
             verified/pwa-promotion-receipt.json
+            verified/run-approval-pre-ssh.json
             verified/ready-headers.txt
             verified/live-manifest.json
           if-no-files-found: ignore

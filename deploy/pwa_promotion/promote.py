@@ -18,6 +18,8 @@ import urllib.parse
 import urllib.request
 import zipfile
 
+import run_approval
+
 ROOT = Path(__file__).resolve().parents[2]
 HERE = Path(__file__).resolve().parent
 APPROVAL_SHA256 = 'c8a644cac461716952ca1776220d69cb80b041d8efe1ae6d8d545eb3872da494'
@@ -388,31 +390,13 @@ def verify_package(path, target, pin, proofs, repository=ROOT):
 
 
 def promotion_context(env, head, pin):
-    for key in ['GITHUB_SHA', 'GITHUB_WORKFLOW_SHA', 'EXPECTED_PROMOTION_SOURCE']:
-        require(re.fullmatch('[0-9a-f]{40}', env.get(key, '')) and env[key] == head, 'promotion source')
-    require(head not in (pin['source'], pin['required_installed_ops_source'],
-                        pin['observed_installed_ops']['source']), 'distinct promotion code source')
-    require(env.get('GITHUB_REPOSITORY') == pin['repository']
-            and env.get('GITHUB_REPOSITORY_ID') == str(pin['repository_id']), 'promotion repository')
-    require(env.get('GITHUB_REF') == 'refs/heads/main'
-            and env.get('GITHUB_EVENT_NAME') == 'workflow_dispatch'
-            and env.get('DEPLOY_ENABLED') == 'true'
-            and env.get('DEPLOY_ENVIRONMENT') == 'wipster-production', 'promotion main/environment/flag')
-    require(re.fullmatch('[1-9][0-9]{0,19}', env.get('GITHUB_RUN_ID', '')) and
-            int(env['GITHUB_RUN_ID']) not in (pin['build_run'], pin['compatibility_run']), 'promotion run')
-    require(re.fullmatch('[1-9][0-9]{0,19}', env.get('GITHUB_RUN_ATTEMPT', '')), 'promotion attempt')
+    try:
+        return run_approval.environment(env, head, pin)
+    except run_approval.Rejected as error:
+        raise Invalid(str(error)) from None
 
 
-def main():
-    parser = argparse.ArgumentParser()
-    parser.add_argument('mode', choices=['verify-only', 'fetch'])
-    parser.add_argument('output', type=Path)
-    args = parser.parse_args()
-    pin, proofs = load_approval()
-    head = subprocess.check_output(['git', 'rev-parse', 'HEAD'], cwd=ROOT, text=True, timeout=10).strip()
-    if args.mode == 'fetch':
-        promotion_context(os.environ, head, pin)
-    token = os.environ['GH_TOKEN']
+def original_metadata(token, pin, proofs):
     run = api('actions/runs/' + str(pin['build_run']), token)
     jobs = api(f"actions/runs/{pin['build_run']}/attempts/{pin['successful_run_attempt']}/jobs?per_page=100", token)
     origin = api(f"actions/runs/{pin['build_run']}/attempts/{pin['artifact_build_attempt']}/jobs?per_page=100", token)
@@ -422,6 +406,62 @@ def main():
     validate_compatibility_metadata(api(f"actions/runs/{compat['run']}/attempts/{compat['attempt']}", token),
         api(f"actions/runs/{compat['run']}/attempts/{compat['attempt']}/jobs?per_page=100", token),
         api(f"actions/artifacts/{compat['artifact_id']}", token), pin, proofs)
+
+
+def fetch_receipt(output, env, head, pin, proofs):
+    receipt = decode((output / 'pwa-promotion-receipt.json').read_bytes())
+    inputs = run_approval.binding(head, promotion_context(env, head, pin), pin, proofs)
+    require(receipt['validation_only'] is False and receipt['promotion_source'] == head
+            and receipt['promotion_run'] == env['GITHUB_RUN_ID'] and receipt['promotion_attempt'] == '1'
+            and receipt['approval_sha256'] == APPROVAL_SHA256
+            and receipt['run_approval']['input_binding'] == inputs, 'fetch authorization receipt')
+    require(receipt['original_package'] == {k: pin[k] for k in ['zip_sha256', 'archive_sha256', 'image',
+            'oci_manifest', 'image_ops_sha256', 'context_sha256', 'static_manifest_sha256']}, 'fetch receipt package')
+    require(digest(output / 'backend-image.tar.gz') == pin['archive_sha256'], 'validated archive changed')
+    return receipt
+
+
+def transport_ready(output, env, head, pin, proofs, now=None):
+    fetch_receipt(output, env, head, pin, proofs)
+    approval = decode((output / 'run-approval-pre-ssh.json').read_bytes())
+    require(approval['input_binding'] == run_approval.binding(head, promotion_context(env, head, pin), pin, proofs)
+            and approval['authority'] == 'execution-time-commit-status-v1'
+            and approval['creator_id'] == run_approval.APPROVER_ID and approval['state'] == 'success', 'pre-SSH identity')
+    now = now or dt.datetime.now(dt.timezone.utc)
+    checked = dt.datetime.fromisoformat(approval['checked_at'])
+    expires = dt.datetime.fromisoformat(approval['expires_at'])
+    require(0 <= (now - checked).total_seconds() <= 30 and now < expires, 'pre-SSH observation stale')
+    # Offline last-mile freshness only: no promise of revocation after SSH starts.
+    return approval
+
+
+def main():
+    parser = argparse.ArgumentParser()
+    parser.add_argument('mode', choices=['verify-only', 'fetch', 'check-delivery', 'transport-ready'])
+    parser.add_argument('output', type=Path)
+    parser.add_argument('--approval-wait-seconds', type=int, default=0)
+    args = parser.parse_args()
+    require(args.mode == 'fetch' or args.approval_wait_seconds == 0, 'wait only in fetch mode')
+    pin, proofs = load_approval()
+    head = subprocess.check_output(['git', 'rev-parse', 'HEAD'], cwd=ROOT, text=True, timeout=10).strip()
+    if args.mode != 'verify-only':
+        promotion_context(os.environ, head, pin)
+    if args.mode == 'transport-ready':
+        transport_ready(args.output, os.environ, head, pin, proofs)
+        return
+    token = os.environ['GH_TOKEN']
+    original_metadata(token, pin, proofs)
+    if args.mode == 'check-delivery':
+        fetch_receipt(args.output, os.environ, head, pin, proofs)
+        approval = run_approval.authorize(os.environ, head, pin, proofs, token)
+        with (args.output / 'run-approval-pre-ssh.json').open('x') as stream:
+            json.dump(approval, stream, indent=2)
+        return
+    approval = None
+    if args.mode == 'fetch':
+        approval = run_approval.authorize(os.environ, head, pin, proofs, token,
+                                          args.approval_wait_seconds)
+    # No archive or outputs before successful context, original CI/proofs and approval.
     raw = args.output.with_suffix('.zip')
     try:
         download(raw, pin, token)
@@ -429,6 +469,7 @@ def main():
     finally:
         raw.unlink(missing_ok=True)
     receipt = {'schema': 1, 'validation_only': args.mode == 'verify-only',
+        'run_approval': approval,
         'image_source': pin['source'], 'image_build_run': pin['build_run'],
         'image_build_attempt': pin['artifact_build_attempt'], 'successful_run_attempt': pin['successful_run_attempt'],
         'artifact_id': pin['artifact_id'], 'approval_sha256': APPROVAL_SHA256,
